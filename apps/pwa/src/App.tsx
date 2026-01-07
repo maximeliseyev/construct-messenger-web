@@ -31,38 +31,43 @@ const App: React.FC = () => {
 
     // Установить callback для RegisterSuccess
     messenger.onRegisterSuccess(async (userId: string, sessionToken: string) => {
-      console.log('RegisterSuccess received:', userId);
+      console.log('✅ RegisterSuccess callback triggered:', userId, sessionToken);
 
       // Получить сохраненные данные
       const password = sessionStorage.getItem('pending_registration_password');
       const username = sessionStorage.getItem('pending_registration_username');
 
+      console.log('📦 Retrieved from sessionStorage:', { username, hasPassword: !!password });
+
       if (!password || !username) {
-        console.error('Missing registration data');
+        console.error('❌ Missing registration data');
         setError('Registration failed: missing data');
         setLoading(false);
         return;
       }
 
       try {
+        console.log('💾 Calling finalizeRegistration...');
         // Завершить регистрацию - сохранить в IndexedDB с server UUID
         await messenger.finalizeRegistration(userId, sessionToken, password);
-        console.log('Registration finalized in IndexedDB');
+        console.log('✅ Registration finalized in IndexedDB');
 
         // Сохранить маппинг username → userId
         const userMap = JSON.parse(localStorage.getItem('construct_user_map') || '{}');
         userMap[username.toLowerCase()] = userId;
         localStorage.setItem('construct_user_map', JSON.stringify(userMap));
+        console.log('✅ User mapping saved');
 
         // Очистить временные данные
         sessionStorage.removeItem('pending_registration_password');
         sessionStorage.removeItem('pending_registration_username');
 
         // Успешная регистрация!
+        console.log('🎉 Setting authenticated=true and loading=false');
         setAuthenticated(true);
         setLoading(false);
       } catch (err) {
-        console.error('Failed to finalize registration:', err);
+        console.error('❌ Failed to finalize registration:', err);
         setError('Failed to complete registration: ' + (err instanceof Error ? err.message : 'Unknown error'));
         setLoading(false);
       }

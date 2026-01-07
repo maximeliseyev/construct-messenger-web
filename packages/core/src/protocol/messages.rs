@@ -121,12 +121,13 @@ pub struct BundleData {
 #[serde(rename_all = "camelCase")]
 pub struct SuiteData {
     pub suite_id: u16,
-    #[serde(with = "serde_bytes")]
-    pub identity_key: Vec<u8>, // X25519 identity public key (32 bytes)
-    #[serde(with = "serde_bytes")]
-    pub signed_prekey: Vec<u8>, // X25519 signed prekey public (32 bytes)
+    /// Base64-кодированный X25519 identity public key (32 bytes)
+    pub identity_key: String,
+    /// Base64-кодированный X25519 signed prekey public (32 bytes)
+    pub signed_prekey: String,
+    /// Опциональный список Base64-кодированных one-time prekeys
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub one_time_prekeys: Vec<Vec<u8>>, // Optional one-time prekeys
+    pub one_time_prekeys: Vec<String>,
 }
 
 /// UploadableKeyBundle - структура для загрузки на сервер (API v3)

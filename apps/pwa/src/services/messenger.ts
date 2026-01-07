@@ -206,16 +206,55 @@ class MessengerService {
    */
   private startEventPolling(): void {
     if (this.connectionCheckInterval) {
+      console.log('⚠️ Event polling already started');
       return;
     }
 
+    console.log('🔄 Starting event polling...');
     this.connectionCheckInterval = window.setInterval(() => {
       // Проверить RegisterSuccess
       const registerSuccess = (window as any).__construct_register_success;
-      if (registerSuccess && this.registerSuccessCallback) {
-        const data = registerSuccess;
-        this.registerSuccessCallback(data.user_id, data.session_token);
-        delete (window as any).__construct_register_success;
+      
+      // Логируем каждую итерацию для отладки (можно убрать позже)
+      if (registerSuccess) {
+        console.log('🔔 Polling detected RegisterSuccess object:', registerSuccess);
+        console.log('🔍 RegisterSuccess type:', typeof registerSuccess);
+        console.log('🔍 RegisterSuccess keys:', Object.keys(registerSuccess));
+        console.log('🔍 RegisterSuccess values:', {
+          userId: registerSuccess.userId,
+          user_id: registerSuccess.user_id,
+          sessionToken: registerSuccess.sessionToken,
+          session_token: registerSuccess.session_token,
+          username: registerSuccess.username,
+        });
+        
+        if (this.registerSuccessCallback) {
+          const data = registerSuccess;
+          // serde_wasm_bindgen использует camelCase для полей (из-за rename_all = "camelCase")
+          const userId = data.userId || data.user_id;
+          const sessionToken = data.sessionToken || data.session_token;
+          
+          console.log('🔍 Extracted:', { userId, sessionToken, hasCallback: !!this.registerSuccessCallback });
+          
+          if (userId && sessionToken) {
+            console.log('✅ Calling registerSuccessCallback with:', { userId, sessionToken });
+            try {
+              this.registerSuccessCallback(userId, sessionToken);
+              console.log('✅ registerSuccessCallback completed');
+              delete (window as any).__construct_register_success;
+            } catch (err) {
+              console.error('❌ Error in registerSuccessCallback:', err);
+            }
+          } else {
+            console.error('❌ Invalid RegisterSuccess data structure:', data);
+            console.error('❌ Missing fields:', { 
+              hasUserId: !!userId, 
+              hasSessionToken: !!sessionToken 
+            });
+          }
+        } else {
+          console.warn('⚠️ RegisterSuccess received but no callback set');
+        }
       }
 
       // Проверить LoginSuccess

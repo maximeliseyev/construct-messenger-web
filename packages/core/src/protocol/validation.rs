@@ -168,12 +168,22 @@ pub fn validate_uploadable_key_bundle(bundle: &UploadableKeyBundle) -> Result<()
     }
     
     for suite in &bundle_data.supported_suites {
-        if suite.identity_key.len() != 32 {
+        // Проверяем Base64 строки
+        validate_base64(&suite.identity_key)?;
+        let identity_bytes = general_purpose::STANDARD
+            .decode(&suite.identity_key)
+            .map_err(|_| ConstructError::ValidationError("Invalid Base64 in identityKey".to_string()))?;
+        if identity_bytes.len() != 32 {
             return Err(ConstructError::ValidationError(
                 "Suite identityKey must be 32 bytes (X25519)".to_string(),
             ));
         }
-        if suite.signed_prekey.len() != 32 {
+        
+        validate_base64(&suite.signed_prekey)?;
+        let prekey_bytes = general_purpose::STANDARD
+            .decode(&suite.signed_prekey)
+            .map_err(|_| ConstructError::ValidationError("Invalid Base64 in signedPrekey".to_string()))?;
+        if prekey_bytes.len() != 32 {
             return Err(ConstructError::ValidationError(
                 "Suite signedPrekey must be 32 bytes (X25519)".to_string(),
             ));

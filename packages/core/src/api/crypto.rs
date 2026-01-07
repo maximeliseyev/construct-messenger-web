@@ -187,8 +187,8 @@ where
         // 2. Создать BundleData
         let suite_data = SuiteData {
             suite_id: P::suite_id(),
-            identity_key: identity_public.clone(),
-            signed_prekey: signed_prekey_public.clone(),
+            identity_key: base64::engine::general_purpose::STANDARD.encode(&identity_public),
+            signed_prekey: base64::engine::general_purpose::STANDARD.encode(&signed_prekey_public),
             one_time_prekeys: Vec::new(), // Пока не используем one-time prekeys
         };
 
@@ -199,8 +199,15 @@ where
         };
 
         // 3. Сериализовать BundleData в канонический JSON (без пробелов)
+        // Используем to_string для компактного JSON без форматирования
         let bundle_data_json = serde_json::to_string(&bundle_data)
             .map_err(|e| ConstructError::SerializationError(format!("Failed to serialize BundleData: {}", e)))?;
+        
+        // Отладочный вывод (можно убрать в production)
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::console::log_1(&format!("🔍 BundleData JSON: {}", bundle_data_json).into());
+        }
 
         // 4. Подписать BundleData
         let signature_bytes = key_manager.sign(bundle_data_json.as_bytes())?;

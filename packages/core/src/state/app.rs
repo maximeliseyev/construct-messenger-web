@@ -580,6 +580,8 @@ impl<P: CryptoProvider> AppState<P> {
     // === Управление соединением ===
 
     /// Подключиться к серверу WebSocket
+    /// ВАЖНО: Этот метод НЕ используется в WASM версии!
+    /// В WASM используется app_state_connect из bindings, который вызывает setup_transport_callbacks_with_arc
     #[cfg(target_arch = "wasm32")]
     pub fn connect(&mut self, server_url: &str) -> Result<()> {
         if self.connection_state == ConnectionState::Connected {
@@ -593,8 +595,8 @@ impl<P: CryptoProvider> AppState<P> {
         let mut transport = WebSocketTransport::new();
         transport.connect(server_url)?;
 
-        // Настроить базовые callbacks
-        self.setup_transport_callbacks(&mut transport)?;
+        // НЕ устанавливаем базовые callbacks здесь - они будут установлены через setup_transport_callbacks_with_arc
+        // self.setup_transport_callbacks(&mut transport)?;
 
         self.transport = Some(transport);
         self.connection_state = ConnectionState::Connected;
@@ -668,11 +670,34 @@ impl<P: CryptoProvider> AppState<P> {
                                 }
                             }
                             ServerMessage::RegisterSuccess(data) => {
-                                web_sys::console::log_1(&format!("✅ Registration successful: {}", data.user_id).into());
+                                web_sys::console::log_1(&format!("🎯 RegisterSuccess handler called: {}", data.user_id).into());
                                 // Сохранить в window для доступа из JavaScript
+                                // Создаем объект вручную, чтобы избежать проблем с serde_wasm_bindgen
                                 if let Some(window) = web_sys::window() {
-                                    let value = serde_wasm_bindgen::to_value(&data).unwrap_or_default();
-                                    let _ = js_sys::Reflect::set(&window, &"__construct_register_success".into(), &value);
+                                    use js_sys::Object;
+                                    let obj = Object::new();
+                                    let _ = js_sys::Reflect::set(&obj, &"userId".into(), &data.user_id.clone().into());
+                                    let _ = js_sys::Reflect::set(&obj, &"username".into(), &data.username.clone().into());
+                                    let _ = js_sys::Reflect::set(&obj, &"sessionToken".into(), &data.session_token.clone().into());
+                                    let _ = js_sys::Reflect::set(&obj, &"expires".into(), &(data.expires as f64).into());
+                                    
+                                    web_sys::console::log_1(&"💾 Created RegisterSuccess object manually".into());
+                                    
+                                    if let Err(e) = js_sys::Reflect::set(&window, &"__construct_register_success".into(), &obj) {
+                                        web_sys::console::log_1(&format!("❌ Failed to set __construct_register_success: {:?}", e).into());
+                                    } else {
+                                        web_sys::console::log_1(&"✅ RegisterSuccess saved to window.__construct_register_success".into());
+                                        // Проверить, что действительно сохранилось
+                                        if let Ok(check) = js_sys::Reflect::get(&window, &"__construct_register_success".into()) {
+                                            web_sys::console::log_1(&format!("🔍 Verification: window.__construct_register_success exists: {}", !check.is_undefined()).into());
+                                            // Попробовать прочитать значения
+                                            if let Ok(user_id_val) = js_sys::Reflect::get(&check, &"userId".into()) {
+                                                web_sys::console::log_1(&format!("🔍 userId value: {:?}", user_id_val).into());
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    web_sys::console::log_1(&"❌ Failed to get window object".into());
                                 }
                             }
                             ServerMessage::LoginSuccess(data) => {
