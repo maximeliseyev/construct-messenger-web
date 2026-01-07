@@ -107,13 +107,48 @@ pub struct ErrorData {
 // Client Message Data Structures
 // ============================================================================
 
+/// BundleData - структура, которая сериализуется и подписывается
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleData {
+    pub user_id: String,
+    pub timestamp: String, // ISO8601 format
+    pub supported_suites: Vec<SuiteData>,
+}
+
+/// Данные для одного набора шифров в BundleData
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuiteData {
+    pub suite_id: u16,
+    #[serde(with = "serde_bytes")]
+    pub identity_key: Vec<u8>, // X25519 identity public key (32 bytes)
+    #[serde(with = "serde_bytes")]
+    pub signed_prekey: Vec<u8>, // X25519 signed prekey public (32 bytes)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub one_time_prekeys: Vec<Vec<u8>>, // Optional one-time prekeys
+}
+
+/// UploadableKeyBundle - структура для загрузки на сервер (API v3)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadableKeyBundle {
+    /// Base64-кодированный публичный мастер-ключ Ed25519 (32 bytes)
+    pub master_identity_key: String,
+    /// Base64-кодированная JSON-строка BundleData
+    pub bundle_data: String,
+    /// Base64-кодированная Ed25519 подпись от bundle_data
+    pub signature: String,
+}
+
 /// Данные для регистрации
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterData {
     pub username: String,
     pub password: String,
-    pub public_key: String,
+    /// Нативная структура UploadableKeyBundle (API v3)
+    pub public_key: UploadableKeyBundle,
 }
 
 /// Данные для входа

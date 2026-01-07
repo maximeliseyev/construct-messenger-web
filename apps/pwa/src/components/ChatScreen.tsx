@@ -13,7 +13,7 @@ type Message = {
   id: string;
   from: string;
   to: string;
-  content: string; // encrypted content (base64)
+  content: string; // encrypted content (base64) - TODO: расшифровать
   timestamp: number;
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 };
@@ -43,7 +43,16 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   const loadMessages = async () => {
     try {
       const conversation = await messenger.loadConversation(chatId);
-      setMessages(conversation.messages);
+      // Конвертировать StoredMessage в Message формат для UI
+      const uiMessages: Message[] = conversation.messages.map(msg => ({
+        id: msg.id,
+        from: msg.from,
+        to: msg.to,
+        content: msg.encrypted_content, // TODO: расшифровать через crypto_manager
+        timestamp: msg.timestamp,
+        status: msg.status,
+      }));
+      setMessages(uiMessages);
     } catch (err) {
       console.error('Failed to load messages:', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');

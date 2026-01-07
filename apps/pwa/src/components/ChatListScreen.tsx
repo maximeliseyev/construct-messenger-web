@@ -45,9 +45,9 @@ const ChatListScreen: React.FC<ChatListScreenProps> = ({ onChatSelect }) => {
             return {
               id: contact.id,
               name: contact.username,
-              lastMessage: lastMsg ? lastMsg.content : 'No messages',
+              lastMessage: lastMsg ? lastMsg.encrypted_content : 'No messages', // TODO: расшифровать
               timestamp: lastMsg ? formatTimestamp(lastMsg.timestamp) : '',
-              unread: conversation.unread_count,
+              unread: conversation.unread_count || 0,
             };
           } catch (err) {
             console.error(`Failed to load conversation for ${contact.username}:`, err);

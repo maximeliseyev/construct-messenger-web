@@ -265,7 +265,48 @@ impl<P: CryptoProvider> AppState<P> {
         _session_token: String,
         password: String,
     ) -> Result<()> {
-        unimplemented!()
+        use crate::crypto::master_key;
+        use crate::storage::models::StoredPrivateKeys;
+        use crate::utils::time::current_timestamp;
+
+        // 1. Экспортировать приватные ключи из CryptoManager
+        // Для этого нужно получить доступ к внутренним ключам
+        // Пока используем упрощенный подход - ключи уже созданы при initialize_user
+        
+        // 2. Зашифровать приватные ключи мастер-паролем
+        let salt = master_key::generate_salt();
+        let master_key = master_key::derive_master_key(&password, &salt)?;
+        
+        // Получить приватные ключи из crypto_manager
+        // Это требует доступа к внутренней структуре Client
+        // Пока используем заглушку - в реальности нужно добавить метод export_private_keys в CryptoCore
+        
+        // 3. Сохранить зашифрованные ключи в IndexedDB
+        let stored_keys = StoredPrivateKeys {
+            user_id: server_user_id.clone(),
+            encrypted_identity_private: vec![], // TODO: получить и зашифровать
+            encrypted_signed_prekey_private: vec![], // TODO: получить и зашифровать
+            encrypted_signing_key: vec![], // TODO: получить и зашифровать
+            prekey_signature: vec![], // TODO: получить
+            salt: salt.to_vec(),
+            created_at: current_timestamp(),
+        };
+        
+        self.storage.save_private_keys(stored_keys).await?;
+
+        // 4. Сохранить user_id и username
+        self.user_id = Some(server_user_id);
+        
+        // 5. Сохранить метаданные
+        let metadata = crate::storage::models::StoredAppMetadata {
+            user_id: self.user_id.as_ref().unwrap().clone(),
+            username: self.username.as_ref().unwrap().clone(),
+            last_sync: current_timestamp(),
+            settings: vec![], // Пустые настройки по умолчанию
+        };
+        self.storage.save_metadata(metadata).await?;
+
+        Ok(())
     }
 
     /// Инициализировать нового пользователя (non-WASM версия)
@@ -289,9 +330,9 @@ impl<P: CryptoProvider> AppState<P> {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn finalize_registration(
         &mut self,
-        server_user_id: String,
+        _server_user_id: String,
         _session_token: String,
-        password: String,
+        _password: String,
     ) -> Result<()> {
         unimplemented!()
     }
@@ -299,12 +340,50 @@ impl<P: CryptoProvider> AppState<P> {
     /// Загрузить существующего пользователя
     #[cfg(target_arch = "wasm32")]
     pub async fn load_user(&mut self, user_id: String, password: String) -> Result<()> {
-        unimplemented!()
+        use crate::crypto::master_key;
+        use crate::storage::models::StoredPrivateKeys;
+
+        // 1. Загрузить зашифрованные ключи из IndexedDB
+        let stored_keys = self.storage.load_private_keys(&user_id).await?
+            .ok_or_else(|| ConstructError::InvalidInput("User not found in storage".to_string()))?;
+
+        // 2. Расшифровать ключи
+        let master_key = master_key::derive_master_key(&password, &stored_keys.salt)?;
+        let private_keys = master_key::decrypt_private_keys(&stored_keys, &master_key)?;
+
+        // 3. Импортировать ключи в CryptoManager
+        // Это требует доступа к внутренней структуре Client
+        // Пока используем заглушку - в реальности нужно добавить метод import_private_keys в CryptoCore
+        
+        // 4. Загрузить метаданные
+        if let Some(metadata) = self.storage.load_metadata(&user_id).await? {
+            self.user_id = Some(metadata.user_id.clone());
+            self.username = Some(metadata.username.clone());
+        } else {
+            return Err(ConstructError::InvalidInput("Metadata not found".to_string()));
+        }
+
+        // 5. Загрузить контакты
+        let contacts = self.storage.load_all_contacts().await?;
+        for stored_contact in contacts {
+            let contact = crate::api::contacts::create_contact(stored_contact.id.clone(), stored_contact.username.clone());
+            let _ = self.contact_manager.add_contact(contact);
+        }
+
+        // 6. Загрузить сессии
+        let sessions = self.storage.load_all_sessions().await?;
+        for stored_session in sessions {
+            // Десериализовать сессию и восстановить в crypto_manager
+            // Это требует доступа к внутренней структуре Client
+            // Пока пропускаем - сессии будут созданы заново при первом сообщении
+        }
+
+        Ok(())
     }
 
     /// Загрузить существующего пользователя (non-WASM версия)
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_user(&mut self, user_id: String, password: String) -> Result<()> {
+    pub fn load_user(&mut self, _user_id: String, _password: String) -> Result<()> {
         unimplemented!()
     }
 
@@ -360,10 +439,76 @@ impl<P: CryptoProvider> AppState<P> {
     pub async fn send_message(
         &mut self,
         to_contact_id: &str,
-        session_id: &str,
+        _session_id: &str,
         plaintext: &str,
     ) -> Result<String> {
-        unimplemented!()
+        use crate::protocol::messages::{ClientMessage, ChatMessage};
+        use crate::crypto::messaging::double_ratchet::EncryptedRatchetMessage;
+        use crate::storage::models::{StoredMessage, MessageStatus};
+        use crate::utils::time::current_timestamp;
+        use base64::Engine;
+        use uuid::Uuid;
+
+        let current_user_id = self.user_id.clone()
+            .ok_or_else(|| ConstructError::InvalidInput("User not logged in".to_string()))?;
+
+        // 1. Проверить наличие сессии, если нет - инициализировать
+        if !self.crypto_manager.has_session(to_contact_id) {
+            // Нужно получить public key bundle контакта
+            // Пока возвращаем ошибку - в реальности нужно запросить bundle с сервера
+            return Err(ConstructError::SessionError(
+                "Session not initialized. Need to request public key bundle first.".to_string()
+            ));
+        }
+
+        // 2. Зашифровать сообщение
+        let encrypted = self.crypto_manager_mut()
+            .encrypt_message(to_contact_id, plaintext)?;
+
+        // 3. Конвертировать EncryptedRatchetMessage в ChatMessage
+        let message_id = Uuid::new_v4().to_string();
+        
+        // Объединить nonce и ciphertext в sealed box (base64)
+        let mut sealed_box = encrypted.nonce.clone();
+        sealed_box.extend_from_slice(&encrypted.ciphertext);
+        let content = base64::engine::general_purpose::STANDARD.encode(&sealed_box);
+
+        let chat_msg = ChatMessage {
+            id: message_id.clone(),
+            from: current_user_id.clone(),
+            to: to_contact_id.to_string(),
+            ephemeral_public_key: encrypted.dh_public_key.to_vec(),
+            message_number: encrypted.message_number,
+            content,
+            timestamp: current_timestamp() as u64,
+        };
+
+        // 4. Отправить через WebSocket
+        let transport = self.transport.as_ref()
+            .ok_or_else(|| ConstructError::NetworkError("Not connected to server".to_string()))?;
+        
+        transport.send(&ClientMessage::SendMessage(chat_msg.clone()))?;
+
+        // 5. Сохранить сообщение в хранилище
+        let stored_msg = StoredMessage {
+            id: message_id.clone(),
+            conversation_id: to_contact_id.to_string(),
+            from: current_user_id.clone(),
+            to: to_contact_id.to_string(),
+            encrypted_content: chat_msg.content.clone(),
+            timestamp: current_timestamp(),
+            status: MessageStatus::Sent,
+        };
+
+        self.storage.save_message(stored_msg.clone()).await?;
+
+        // 6. Обновить кеш
+        self.message_cache
+            .entry(to_contact_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(stored_msg);
+
+        Ok(message_id)
     }
 
     /// Отправить сообщение (non-WASM версия)
@@ -379,8 +524,8 @@ impl<P: CryptoProvider> AppState<P> {
 
     /// Обработать входящее сообщение
     #[cfg(target_arch = "wasm32")]
-    pub async fn receive_message(&mut self, chat_msg: ChatMessage, session_id: &str) -> Result<()> {
-        unimplemented!()
+    pub async fn receive_message(&mut self, chat_msg: ChatMessage, _session_id: &str) -> Result<()> {
+        self.handle_incoming_message(chat_msg).await
     }
 
     /// Обработать входящее сообщение (non-WASM заглушка)
@@ -402,7 +547,18 @@ impl<P: CryptoProvider> AppState<P> {
     /// Загрузить беседу
     #[cfg(target_arch = "wasm32")]
     pub async fn load_conversation(&mut self, contact_id: &str) -> Result<Vec<StoredMessage>> {
-        unimplemented!()
+        // 1. Попробовать загрузить из кеша
+        if let Some(messages) = self.message_cache.get(contact_id) {
+            return Ok(messages.clone());
+        }
+
+        // 2. Загрузить из хранилища
+        let messages = self.storage.load_messages_for_conversation(contact_id, 100, 0).await?;
+
+        // 3. Сохранить в кеш
+        self.message_cache.insert(contact_id.to_string(), messages.clone());
+
+        Ok(messages)
     }
 
     /// Загрузить беседу (non-WASM версия)
@@ -480,7 +636,236 @@ impl<P: CryptoProvider> AppState<P> {
         transport: &mut WebSocketTransport,
         app_state_arc: std::sync::Arc<std::sync::Mutex<AppState<P>>>,
     ) -> Result<()> {
-        unimplemented!()
+        use crate::protocol::messages::{ServerMessage, ChatMessage};
+        use crate::crypto::messaging::double_ratchet::EncryptedRatchetMessage;
+        use base64::Engine;
+
+        // Callback для успешного подключения
+        {
+            let app_state_arc = app_state_arc.clone();
+            transport.set_on_open(move || {
+                web_sys::console::log_1(&"✅ WebSocket connected successfully".into());
+                if let Ok(mut state) = app_state_arc.lock() {
+                    state.set_connection_state(ConnectionState::Connected);
+                }
+            })?;
+        }
+
+        // Callback для входящих сообщений
+        {
+            let app_state_arc = app_state_arc.clone();
+            transport.set_on_message(move |msg: ServerMessage| {
+                let app_state_arc = app_state_arc.clone();
+                
+                // Используем wasm_bindgen_futures для async обработки
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Ok(mut state) = app_state_arc.lock() {
+                        match msg {
+                            ServerMessage::Message(chat_msg) => {
+                                web_sys::console::log_1(&format!("📩 Received message from {}", chat_msg.from).into());
+                                if let Err(e) = state.handle_incoming_message(chat_msg).await {
+                                    web_sys::console::log_1(&format!("❌ Failed to handle message: {}", e).into());
+                                }
+                            }
+                            ServerMessage::RegisterSuccess(data) => {
+                                web_sys::console::log_1(&format!("✅ Registration successful: {}", data.user_id).into());
+                                // Сохранить в window для доступа из JavaScript
+                                if let Some(window) = web_sys::window() {
+                                    let value = serde_wasm_bindgen::to_value(&data).unwrap_or_default();
+                                    let _ = js_sys::Reflect::set(&window, &"__construct_register_success".into(), &value);
+                                }
+                            }
+                            ServerMessage::LoginSuccess(data) => {
+                                web_sys::console::log_1(&format!("✅ Login successful: {}", data.user_id).into());
+                                if let Some(window) = web_sys::window() {
+                                    let value = serde_wasm_bindgen::to_value(&data).unwrap_or_default();
+                                    let _ = js_sys::Reflect::set(&window, &"__construct_login_success".into(), &value);
+                                }
+                            }
+                            ServerMessage::Ack(ack) => {
+                                web_sys::console::log_1(&format!("✓ Message {} acknowledged", ack.message_id).into());
+                                if let Err(e) = state.update_message_status(&ack.message_id, crate::storage::models::MessageStatus::Delivered).await {
+                                    web_sys::console::log_1(&format!("❌ Failed to update message status: {}", e).into());
+                                }
+                            }
+                            ServerMessage::Error(err) => {
+                                web_sys::console::log_1(&format!("❌ Server error: {} - {}", err.code, err.message).into());
+                                if let Some(window) = web_sys::window() {
+                                    let value = serde_wasm_bindgen::to_value(&err).unwrap_or_default();
+                                    let _ = js_sys::Reflect::set(&window, &"__construct_server_error".into(), &value);
+                                }
+                            }
+                            ServerMessage::PublicKeyBundle(bundle) => {
+                                web_sys::console::log_1(&format!("🔑 Received public key bundle for {}", bundle.user_id).into());
+                                // Сохранить bundle для контакта
+                                if let Err(e) = state.save_contact_bundle(&bundle.user_id, &bundle).await {
+                                    web_sys::console::log_1(&format!("❌ Failed to save bundle: {}", e).into());
+                                }
+                            }
+                            _ => {
+                                web_sys::console::log_1(&format!("📨 Received server message: {:?}", msg).into());
+                            }
+                        }
+                    }
+                });
+            })?;
+        }
+
+        // Callback для ошибок
+        {
+            let app_state_arc = app_state_arc.clone();
+            transport.set_on_error(move |err: String| {
+                web_sys::console::log_1(&format!("❌ WebSocket error: {}", err).into());
+                if let Ok(mut state) = app_state_arc.lock() {
+                    state.set_connection_state(ConnectionState::Error);
+                }
+            })?;
+        }
+
+        // Callback для закрытия соединения
+        {
+            let app_state_arc = app_state_arc.clone();
+            transport.set_on_close(move |code: u16, reason: String| {
+                web_sys::console::log_1(&format!("🔌 WebSocket closed: {} - {}", code, reason).into());
+                if let Ok(mut state) = app_state_arc.lock() {
+                    state.set_connection_state(ConnectionState::Disconnected);
+                }
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Обработать входящее сообщение от сервера
+    #[cfg(target_arch = "wasm32")]
+    async fn handle_incoming_message(&mut self, chat_msg: ChatMessage) -> Result<()> {
+        use crate::crypto::messaging::double_ratchet::EncryptedRatchetMessage;
+        use crate::storage::models::{StoredMessage, MessageStatus};
+        use base64::Engine;
+        use crate::utils::time::current_timestamp;
+
+        let current_user_id = self.user_id.as_ref()
+            .ok_or_else(|| ConstructError::InvalidInput("User not logged in".to_string()))?;
+
+        // Определить contact_id (отправитель или получатель)
+        let contact_id = if chat_msg.from == *current_user_id {
+            &chat_msg.to
+        } else {
+            &chat_msg.from
+        };
+
+        // Конвертировать ChatMessage в EncryptedRatchetMessage
+        let dh_public_key: [u8; 32] = chat_msg.ephemeral_public_key[..32]
+            .try_into()
+            .map_err(|_| ConstructError::CryptoError("Invalid ephemeral key length".to_string()))?;
+
+        // Декодировать content (base64) в ciphertext
+        let sealed_box = base64::engine::general_purpose::STANDARD
+            .decode(&chat_msg.content)
+            .map_err(|e| ConstructError::SerializationError(format!("Invalid base64: {}", e)))?;
+
+        // Извлечь nonce (первые 12 байт) и ciphertext (остальное)
+        if sealed_box.len() < 12 {
+            return Err(ConstructError::CryptoError("Invalid sealed box length".to_string()));
+        }
+        let nonce = sealed_box[..12].to_vec();
+        let ciphertext = sealed_box[12..].to_vec();
+
+        let encrypted_msg = EncryptedRatchetMessage {
+            dh_public_key,
+            message_number: chat_msg.message_number,
+            ciphertext,
+            nonce,
+            previous_chain_length: 0, // Не используется при расшифровке
+            suite_id: crate::config::Config::global().classic_suite_id,
+        };
+
+        // Расшифровать сообщение
+        let plaintext = self.crypto_manager_mut()
+            .decrypt_message(contact_id, &encrypted_msg)?;
+
+        // Сохранить сообщение в хранилище
+        let stored_msg = StoredMessage {
+            id: chat_msg.id.clone(),
+            conversation_id: contact_id.to_string(),
+            from: chat_msg.from.clone(),
+            to: chat_msg.to.clone(),
+            encrypted_content: chat_msg.content.clone(), // Сохраняем зашифрованное для истории
+            timestamp: chat_msg.timestamp as i64,
+            status: MessageStatus::Delivered,
+        };
+
+        self.storage.save_message(stored_msg.clone()).await?;
+
+        // Обновить кеш
+        self.message_cache
+            .entry(contact_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(stored_msg);
+
+        // Обновить последнее сообщение в беседе
+        if let Some(contact) = self.contact_manager.get_contact(contact_id) {
+            let mut stored_contact = crate::storage::models::StoredContact {
+                id: contact.id.clone(),
+                username: contact.username.clone(),
+                public_key_bundle: None,
+                added_at: current_timestamp(),
+                last_message_at: Some(chat_msg.timestamp as i64),
+            };
+            self.storage.save_contact(stored_contact).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Сохранить public key bundle для контакта
+    #[cfg(target_arch = "wasm32")]
+    async fn save_contact_bundle(
+        &mut self,
+        contact_id: &str,
+        bundle: &crate::protocol::messages::PublicKeyBundleData,
+    ) -> Result<()> {
+        use crate::utils::time::current_timestamp;
+
+        // Сериализовать bundle в JSON
+        let bundle_json = serde_json::to_vec(bundle)
+            .map_err(|e| ConstructError::SerializationError(format!("Failed to serialize bundle: {}", e)))?;
+
+        // Найти контакт
+        if let Some(contact) = self.contact_manager.get_contact(contact_id) {
+            let mut stored_contact = crate::storage::models::StoredContact {
+                id: contact.id.clone(),
+                username: contact.username.clone(),
+                public_key_bundle: Some(bundle_json),
+                added_at: current_timestamp(),
+                last_message_at: None,
+            };
+            self.storage.save_contact(stored_contact).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Обновить статус сообщения
+    #[cfg(target_arch = "wasm32")]
+    async fn update_message_status(
+        &mut self,
+        message_id: &str,
+        status: crate::storage::models::MessageStatus,
+    ) -> Result<()> {
+        // Найти сообщение в кеше и обновить статус
+        for messages in self.message_cache.values_mut() {
+            if let Some(msg) = messages.iter_mut().find(|m| m.id == message_id) {
+                msg.status = status;
+                // Сохранить в хранилище
+                self.storage.save_message(msg.clone()).await?;
+                return Ok(());
+            }
+        }
+
+        // Если не найдено в кеше, загрузить из хранилища
+        // (упрощенная версия - в реальности нужен индекс по message_id)
+        Ok(())
     }
 
     /// Подключиться к серверу (non-WASM заглушка)
@@ -532,6 +917,14 @@ impl<P: CryptoProvider> AppState<P> {
     /// Проверить, подключен ли к серверу
     pub fn is_connected(&self) -> bool {
         self.connection_state == ConnectionState::Connected
+    }
+
+    /// Проверить реальное состояние WebSocket соединения
+    #[cfg(target_arch = "wasm32")]
+    pub fn is_websocket_ready(&self) -> bool {
+        self.transport.as_ref()
+            .map(|t| t.is_connected())
+            .unwrap_or(false)
     }
 
     /// Установить URL сервера
@@ -641,22 +1034,23 @@ impl<P: CryptoProvider> AppState<P> {
                 "User not initialized. Call initialize_user first.".to_string()
             ))?;
 
-        // 2. Проверить, что есть transport
+        // 2. Проверить, что есть transport и он подключен
         let transport = self.transport.as_ref()
             .ok_or_else(|| ConstructError::NetworkError(
                 "Not connected to server. Call connect first.".to_string()
             ))?;
+        
+        // Проверить реальное состояние WebSocket соединения
+        if !transport.is_connected() {
+            return Err(ConstructError::NetworkError(
+                "WebSocket is not connected. Wait for connection to be established.".to_string()
+            ));
+        }
 
-        // 3. Получить registration bundle в base64
-        let bundle = self.crypto_manager.export_registration_bundle_b64()?;
+        // 3. Создать UploadableKeyBundle согласно API v3
+        let public_key = self.crypto_manager.create_uploadable_key_bundle()?;
 
-        // 4. Сериализовать bundle в JSON для public_key поля
-        let public_key = serde_json::to_string(&bundle)
-            .map_err(|e| ConstructError::SerializationError(
-                format!("Failed to serialize registration bundle: {}", e)
-            ))?;
-
-        // 5. Создать RegisterData
+        // 4. Создать RegisterData
         let register_data = RegisterData {
             username: username.clone(),
             password,

@@ -171,6 +171,48 @@ where
         &mut self.client
     }
 
+    /// Создать UploadableKeyBundle для регистрации (API v3)
+    pub fn create_uploadable_key_bundle(&self) -> Result<crate::protocol::messages::UploadableKeyBundle> {
+        use crate::protocol::messages::{BundleData, SuiteData, UploadableKeyBundle};
+        use base64::Engine;
+        use serde_json;
+
+        // 1. Получить ключи из KeyManager
+        let key_manager = self.client.key_manager();
+        let identity_public = key_manager.identity_public_key()?.as_ref().to_vec();
+        let verifying_key = key_manager.verifying_key()?.as_ref().to_vec();
+        let prekey = key_manager.current_signed_prekey()?;
+        let signed_prekey_public = prekey.key_pair.1.as_ref().to_vec();
+
+        // 2. Создать BundleData
+        let suite_data = SuiteData {
+            suite_id: P::suite_id(),
+            identity_key: identity_public.clone(),
+            signed_prekey: signed_prekey_public.clone(),
+            one_time_prekeys: Vec::new(), // Пока не используем one-time prekeys
+        };
+
+        let bundle_data = BundleData {
+            user_id: String::new(), // Пустой при регистрации, будет заполнен сервером
+            timestamp: chrono::Utc::now().to_rfc3339(), // ISO8601 format
+            supported_suites: vec![suite_data],
+        };
+
+        // 3. Сериализовать BundleData в канонический JSON (без пробелов)
+        let bundle_data_json = serde_json::to_string(&bundle_data)
+            .map_err(|e| ConstructError::SerializationError(format!("Failed to serialize BundleData: {}", e)))?;
+
+        // 4. Подписать BundleData
+        let signature_bytes = key_manager.sign(bundle_data_json.as_bytes())?;
+
+        // 5. Создать UploadableKeyBundle
+        Ok(UploadableKeyBundle {
+            master_identity_key: base64::engine::general_purpose::STANDARD.encode(&verifying_key),
+            bundle_data: base64::engine::general_purpose::STANDARD.encode(bundle_data_json.as_bytes()),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature_bytes),
+        })
+    }
+
     // DEPRECATED: These methods don't work with generic CryptoProvider
     // They should be refactored to work with Vec<u8> instead of concrete types
     // pub fn export_private_keys(&self) -> Result<crate::crypto::master_key::PrivateKeys> {

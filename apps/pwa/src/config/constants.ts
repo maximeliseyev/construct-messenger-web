@@ -3,7 +3,7 @@ import { normalizeWebSocketUrl } from '../utils/url';
 
 // Server configuration
 // Default fallback if no env variable is set
-const DEFAULT_SERVER_URL = 'wss://66.241.124.8:443';
+const DEFAULT_SERVER_URL = 'wss://api.konstruct.cc';
 
 // Get server URL from environment or use default
 const rawServerUrl = import.meta.env.VITE_SERVER_URL || DEFAULT_SERVER_URL;

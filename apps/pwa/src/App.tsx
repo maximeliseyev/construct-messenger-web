@@ -104,22 +104,32 @@ const App: React.FC = () => {
         }
 
         // ПРАВИЛЬНЫЙ ПОТОК РЕГИСТРАЦИИ:
-        // 1. Сначала подключиться к серверу
+        // 1. Инициализировать пользователя (создать ключи в памяти, НЕ сохранять)
+        await messenger.registerUser(username, password);
+        console.log('User keys created locally');
+
+        // 2. Подключиться к серверу
         const serverUrl = localStorage.getItem('construct_server_url') || SERVER_URL;
         await messenger.connect(serverUrl);
         console.log('WebSocket connecting to:', serverUrl);
 
-        // 2. Дождаться установки соединения
+        // 3. Дождаться установки соединения
         await messenger.waitForConnection();
         console.log('✅ WebSocket connected to server');
 
-        // 3. Инициализировать пользователя (создать ключи в памяти, НЕ сохранять)
-        await messenger.registerUser(username, password);
-        console.log('User keys created locally');
+        // 4. Небольшая задержка для полной инициализации WebSocket
+        await new Promise(resolve => setTimeout(resolve, 200));
 
-        // 4. Отправить Register на сервер
-        messenger.registerOnServer(password);
-        console.log('Register message sent to server');
+        // 5. Отправить Register на сервер (после установки соединения)
+        try {
+          messenger.registerOnServer(password);
+          console.log('Register message sent to server');
+        } catch (err) {
+          console.error('Failed to send Register:', err);
+          setError(err instanceof Error ? err.message : 'Failed to send registration');
+          setLoading(false);
+          return;
+        }
 
         // 4. Ждем RegisterSuccess от сервера (обрабатывается в callback)
         // После получения RegisterSuccess вызовется messenger.finalizeRegistration

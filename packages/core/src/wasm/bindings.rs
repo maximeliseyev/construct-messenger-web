@@ -788,6 +788,30 @@ pub fn app_state_connection_state(state_id: String) -> Result<String, JsValue> {
     Ok(state_str.to_string())
 }
 
+/// Проверить реальное состояние WebSocket (готов ли к отправке сообщений)
+#[wasm_bindgen]
+pub fn app_state_is_websocket_ready(state_id: String) -> Result<bool, JsValue> {
+    let state_arc = APP_STATES.with(|states| {
+        states.borrow()
+            .get(&state_id)
+            .cloned()
+            .ok_or_else(|| JsValue::from_str("AppState not found"))
+    })?;
+
+    let state = state_arc.lock()
+        .map_err(|e| JsValue::from_str(&format!("Failed to lock state: {}", e)))?;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        Ok(state.is_websocket_ready())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Ok(false)
+    }
+}
+
 /// Включить/выключить автоматическое переподключение
 #[wasm_bindgen]
 pub fn app_state_set_auto_reconnect(state_id: String, enabled: bool) -> Result<(), JsValue> {

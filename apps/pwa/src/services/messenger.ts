@@ -1,4 +1,4 @@
-import init, * as wasm from 'construct-core';
+import init, * as wasm from '../wasm/pkg/construct_core.js';
 
 // Define the types locally as they are not exported from WASM
 export type Contact = {
@@ -10,21 +10,33 @@ export type Contact = {
 export type Conversation = {
     contact_id: string;
     messages: StoredMessage[];
-    // Add other fields as necessary
+    unread_count?: number;
 };
 
 export type StoredMessage = {
     id: string;
-    sender_id: string;
-    receiver_id: string;
+    conversation_id: string;
+    from: string;
+    to: string;
+    encrypted_content: string;
     timestamp: number;
-    // etc.
+    status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 };
 
+
+type RegisterSuccessCallback = (userId: string, sessionToken: string) => void;
+type LoginSuccessCallback = (userId: string, sessionToken: string) => void;
+type ServerErrorCallback = (code: string, message: string) => void;
+type MessageCallback = (message: any) => void;
 
 class MessengerService {
   private stateId: string | null = null;
   private isInitialized = false;
+  private registerSuccessCallback: RegisterSuccessCallback | null = null;
+  private loginSuccessCallback: LoginSuccessCallback | null = null;
+  private serverErrorCallback: ServerErrorCallback | null = null;
+  private messageCallback: MessageCallback | null = null;
+  private connectionCheckInterval: number | null = null;
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -33,7 +45,9 @@ class MessengerService {
     }
     try {
       // 1. Initialize the WASM module
-      await init();
+      // Явно указываем путь к WASM файлу для правильной загрузки
+      const wasmUrl = new URL('../wasm/pkg/construct_core_bg.wasm', import.meta.url);
+      await init(wasmUrl);
       
       // 2. Create a new application state instance
       // "construct-db" is an arbitrary name for the IndexedDB database
@@ -57,16 +71,11 @@ class MessengerService {
     return this.stateId;
   }
 
-  async registerUser(username: string, password: string): Promise<string> {
+  async registerUser(username: string, password: string): Promise<void> {
     const stateId = this.getStateId();
     await wasm.app_state_initialize_user(stateId, username, password);
-    const userId = wasm.app_state_get_user_id(stateId);
-    if (!userId) {
-        throw new Error("Could not get user ID after initialization.");
-    }
-    // In a real app, you'd now make a server call to finalize registration
-    // await wasm.app_state_register_on_server(stateId, password);
-    return userId;
+    // user_id будет получен от сервера после успешной регистрации (RegisterSuccess)
+    // Не пытаемся получить его здесь, так как он еще не существует
   }
 
   async loginUser(userId: string, password: string): Promise<void> {
@@ -99,26 +108,159 @@ class MessengerService {
 
   async loadConversation(contactId: string): Promise<Conversation> {
     const stateId = this.getStateId();
-    // serde-wasm-bindgen automatically converts the JsValue to a JS object/array
-    return await wasm.app_state_load_conversation(stateId, contactId) as Conversation;
+    const messagesJson = await wasm.app_state_load_conversation(stateId, contactId);
+    const messages = JSON.parse(messagesJson) as StoredMessage[];
+    
+    return {
+      contact_id: contactId,
+      messages: messages,
+    };
   }
 
   async connect(serverUrl: string): Promise<void> {
     const stateId = this.getStateId();
-    wasm.app_state_connect(stateId, serverUrl);
+    await wasm.app_state_connect(stateId, serverUrl);
+    
+    // Начать проверку событий от сервера
+    this.startEventPolling();
   }
 
   async disconnect(): Promise<void> {
     const stateId = this.getStateId();
-    wasm.app_state_disconnect(stateId);
+    await wasm.app_state_disconnect(stateId);
+    
+    // Остановить проверку событий
+    this.stopEventPolling();
+  }
+
+  /**
+   * Ожидание установки соединения
+   */
+  async waitForConnection(timeout: number = 10000): Promise<void> {
+    const stateId = this.getStateId();
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      // Проверяем состояние соединения
+      const state = wasm.app_state_connection_state(stateId);
+      if (state === 'connected') {
+        // Дополнительная проверка - даем немного времени для полной инициализации
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return;
+      }
+      if (state === 'error') {
+        throw new Error('Connection error');
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    throw new Error('Connection timeout');
+  }
+
+  /**
+   * Зарегистрировать пользователя на сервере
+   */
+  registerOnServer(password: string): void {
+    const stateId = this.getStateId();
+    wasm.app_state_register_on_server(stateId, password);
+  }
+
+  /**
+   * Завершить регистрацию после получения UUID от сервера
+   */
+  async finalizeRegistration(userId: string, sessionToken: string, password: string): Promise<void> {
+    const stateId = this.getStateId();
+    await wasm.app_state_finalize_registration(stateId, userId, sessionToken, password);
+  }
+
+  /**
+   * Установить callback для RegisterSuccess
+   */
+  onRegisterSuccess(callback: RegisterSuccessCallback): void {
+    this.registerSuccessCallback = callback;
+  }
+
+  /**
+   * Установить callback для LoginSuccess
+   */
+  onLoginSuccess(callback: LoginSuccessCallback): void {
+    this.loginSuccessCallback = callback;
+  }
+
+  /**
+   * Установить callback для ошибок сервера
+   */
+  onServerError(callback: ServerErrorCallback): void {
+    this.serverErrorCallback = callback;
+  }
+
+  /**
+   * Установить callback для входящих сообщений
+   */
+  onMessage(callback: MessageCallback): void {
+    this.messageCallback = callback;
+  }
+
+  /**
+   * Начать опрос событий от сервера (через window объект)
+   */
+  private startEventPolling(): void {
+    if (this.connectionCheckInterval) {
+      return;
+    }
+
+    this.connectionCheckInterval = window.setInterval(() => {
+      // Проверить RegisterSuccess
+      const registerSuccess = (window as any).__construct_register_success;
+      if (registerSuccess && this.registerSuccessCallback) {
+        const data = registerSuccess;
+        this.registerSuccessCallback(data.user_id, data.session_token);
+        delete (window as any).__construct_register_success;
+      }
+
+      // Проверить LoginSuccess
+      const loginSuccess = (window as any).__construct_login_success;
+      if (loginSuccess && this.loginSuccessCallback) {
+        const data = loginSuccess;
+        this.loginSuccessCallback(data.user_id, data.session_token);
+        delete (window as any).__construct_login_success;
+      }
+
+      // Проверить ServerError
+      const serverError = (window as any).__construct_server_error;
+      if (serverError && this.serverErrorCallback) {
+        const data = serverError;
+        this.serverErrorCallback(data.code, data.message);
+        delete (window as any).__construct_server_error;
+      }
+    }, 100); // Проверять каждые 100ms
+  }
+
+  /**
+   * Остановить опрос событий
+   */
+  private stopEventPolling(): void {
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
   }
 
   destroy(): void {
+    this.stopEventPolling();
+    
     if (this.stateId) {
       wasm.destroy_app_state(this.stateId);
       this.stateId = null;
     }
     this.isInitialized = false;
+    
+    // Очистить callbacks
+    this.registerSuccessCallback = null;
+    this.loginSuccessCallback = null;
+    this.serverErrorCallback = null;
+    this.messageCallback = null;
+    
     console.log('Messenger destroyed.');
   }
 }

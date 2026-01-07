@@ -28,6 +28,18 @@ export default defineConfig({
         ],
       },
     }),
+    // Middleware для правильной обработки WASM файлов
+    {
+      name: 'wasm-mime-type',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url?.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+          }
+          next();
+        });
+      }
+    }
   ],
   server: {
     fs: {
@@ -36,6 +48,24 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    exclude: ['construct_core']
+    exclude: ['construct-core', 'construct_core']
+  },
+  assetsInclude: ['**/*.wasm'],
+  worker: {
+    format: 'es'
+  },
+  // Настройка для правильной обработки WASM файлов
+  build: {
+    rollupOptions: {
+      output: {
+        // Сохранить структуру для WASM файлов
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith('.wasm')) {
+            return 'assets/[name][extname]';
+          }
+          return 'assets/[name]-[hash][extname]';
+        }
+      }
+    }
   }
 })

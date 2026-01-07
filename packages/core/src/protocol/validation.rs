@@ -1,7 +1,7 @@
 // Валидация входящих данных
 
 use crate::config::Config;
-use crate::protocol::messages::{ChatMessage, ClientMessage, RegistrationBundle};
+use crate::protocol::messages::{ChatMessage, ClientMessage, RegistrationBundle, UploadableKeyBundle, BundleData};
 use crate::utils::error::{ConstructError, Result};
 use base64::{engine::general_purpose, Engine as _};
 
@@ -98,7 +98,7 @@ pub fn validate_chat_message(msg: &ChatMessage) -> Result<()> {
     Ok(())
 }
 
-/// Валидация RegistrationBundle
+/// Валидация RegistrationBundle (старый формат, для обратной совместимости)
 pub fn validate_registration_bundle(bundle: &RegistrationBundle) -> Result<()> {
     let cfg = Config::global();
 
@@ -132,6 +132,68 @@ pub fn validate_registration_bundle(bundle: &RegistrationBundle) -> Result<()> {
     Ok(())
 }
 
+/// Валидация UploadableKeyBundle (API v3)
+pub fn validate_uploadable_key_bundle(bundle: &UploadableKeyBundle) -> Result<()> {
+    let cfg = Config::global();
+
+    // 1. Валидировать masterIdentityKey (Base64 Ed25519 public key, 32 bytes = 44 chars)
+    validate_base64(&bundle.master_identity_key)?;
+    let master_key_bytes = general_purpose::STANDARD
+        .decode(&bundle.master_identity_key)
+        .map_err(|_| ConstructError::ValidationError("Invalid Base64 in masterIdentityKey".to_string()))?;
+    if master_key_bytes.len() != 32 {
+        return Err(ConstructError::ValidationError(
+            "masterIdentityKey must be 32 bytes (Ed25519 public key)".to_string(),
+        ));
+    }
+
+    // 2. Валидировать bundleData (Base64 JSON строка)
+    validate_base64(&bundle.bundle_data)?;
+    let bundle_data_json = String::from_utf8(
+        general_purpose::STANDARD
+            .decode(&bundle.bundle_data)
+            .map_err(|_| ConstructError::ValidationError("Invalid Base64 in bundleData".to_string()))?
+    )
+    .map_err(|_| ConstructError::ValidationError("bundleData is not valid UTF-8".to_string()))?;
+    
+    // Парсим BundleData для валидации структуры
+    let bundle_data: BundleData = serde_json::from_str(&bundle_data_json)
+        .map_err(|e| ConstructError::ValidationError(format!("Invalid BundleData JSON: {}", e)))?;
+    
+    // Валидируем BundleData
+    if bundle_data.supported_suites.is_empty() {
+        return Err(ConstructError::ValidationError(
+            "BundleData must contain at least one supported suite".to_string(),
+        ));
+    }
+    
+    for suite in &bundle_data.supported_suites {
+        if suite.identity_key.len() != 32 {
+            return Err(ConstructError::ValidationError(
+                "Suite identityKey must be 32 bytes (X25519)".to_string(),
+            ));
+        }
+        if suite.signed_prekey.len() != 32 {
+            return Err(ConstructError::ValidationError(
+                "Suite signedPrekey must be 32 bytes (X25519)".to_string(),
+            ));
+        }
+    }
+
+    // 3. Валидировать signature (Base64 Ed25519 signature, 64 bytes = 88 chars)
+    validate_base64(&bundle.signature)?;
+    let signature_bytes = general_purpose::STANDARD
+        .decode(&bundle.signature)
+        .map_err(|_| ConstructError::ValidationError("Invalid Base64 in signature".to_string()))?;
+    if signature_bytes.len() != 64 {
+        return Err(ConstructError::ValidationError(
+            "signature must be 64 bytes (Ed25519 signature)".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Валидация ClientMessage (клиент → сервер)
 pub fn validate_client_message(msg: &ClientMessage) -> Result<()> {
     match msg {
@@ -143,16 +205,8 @@ pub fn validate_client_message(msg: &ClientMessage) -> Result<()> {
                     format!("Password too short (min {} chars)", min_pass),
                 ));
             }
-            // Декодируем и валидируем бандл
-            let msgpack_bytes = general_purpose::STANDARD
-                .decode(&data.public_key)
-                .map_err(|_| {
-                    ConstructError::ValidationError("Invalid Base64 in public_key".to_string())
-                })?;
-            let bundle: RegistrationBundle = rmp_serde::from_slice(&msgpack_bytes).map_err(
-                |_| ConstructError::ValidationError("Invalid MessagePack in public_key".to_string()),
-            )?;
-            validate_registration_bundle(&bundle)?;
+            // Валидируем UploadableKeyBundle (API v3)
+            validate_uploadable_key_bundle(&data.public_key)?;
         }
         ClientMessage::Login(data) => {
             validate_username(&data.username)?;
