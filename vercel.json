@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd ../.. && (command -v rustc >/dev/null 2>&1 || (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y)) && export PATH=\"$HOME/.cargo/bin:$PATH\" && (rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown || rustup target add wasm32-unknown-unknown) && (command -v wasm-pack >/dev/null 2>&1 || (curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh)) && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd packages/core && wasm-pack build --target web --release --out-dir ../../apps/pwa/src/wasm/pkg && cd ../.. && turbo run build",
+  "buildCommand": "cd ../.. && npm run build:wasm:vercel && turbo run build",
   "installCommand": "npm install --prefix=../..",
   "framework": null,
   "outputDirectory": "apps/pwa/dist",
