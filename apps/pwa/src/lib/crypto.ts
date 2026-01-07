@@ -1,14 +1,8 @@
 // TypeScript wrapper for WASM crypto module
-import init, {
-  create_crypto_client,
-  get_registration_bundle,
-  init_session,
-  init_receiving_session,
-  encrypt_message,
-  decrypt_message,
-  destroy_client,
-  version
-} from '../wasm/pkg/construct_core.js';
+// NOTE: This file is deprecated. The old crypto API is no longer exported from WASM.
+// Use AppState API instead (see messenger.ts for examples).
+
+import init from '../wasm/pkg/construct_core.js';
 
 let wasmInitialized = false;
 
@@ -35,55 +29,44 @@ export class CryptoClient {
     if (!wasmInitialized) {
       await init();
       wasmInitialized = true;
-      console.log('🔐 Construct Crypto WASM initialized, version:', version());
+      console.log('🔐 Construct Crypto WASM initialized');
     }
 
-    this.clientId = create_crypto_client();
-    console.log('👤 Created crypto client:', this.clientId);
+    // Old API is deprecated - this is a stub for backward compatibility
+    console.warn('⚠️ CryptoClient is deprecated. Use AppState API instead.');
+    this.clientId = 'deprecated';
   }
 
   getKeyBundle(): KeyBundle {
-    if (!this.clientId) throw new Error('Client not initialized');
-    const json = get_registration_bundle(this.clientId);
-    return JSON.parse(json);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   getKeyBundleJSON(): string {
-    if (!this.clientId) throw new Error('Client not initialized');
-    return get_registration_bundle(this.clientId);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   initSession(contactId: string, remoteBundleJSON: string): string {
-    if (!this.clientId) throw new Error('Client not initialized');
-    return init_session(this.clientId, contactId, remoteBundleJSON);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   initReceivingSession(contactId: string, remoteBundleJSON: string, firstMessageJSON: string): string {
-    if (!this.clientId) throw new Error('Client not initialized');
-    return init_receiving_session(this.clientId, contactId, remoteBundleJSON, firstMessageJSON);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   encryptMessage(sessionId: string, plaintext: string): EncryptedMessage {
-    if (!this.clientId) throw new Error('Client not initialized');
-    const json = encrypt_message(this.clientId, sessionId, plaintext);
-    return JSON.parse(json);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   encryptMessageJSON(sessionId: string, plaintext: string): string {
-    if (!this.clientId) throw new Error('Client not initialized');
-    return encrypt_message(this.clientId, sessionId, plaintext);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   decryptMessage(sessionId: string, encryptedJSON: string): string {
-    if (!this.clientId) throw new Error('Client not initialized');
-    return decrypt_message(this.clientId, sessionId, encryptedJSON);
+    throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
   destroy(): void {
-    if (this.clientId) {
-      destroy_client(this.clientId);
-      this.clientId = null;
-    }
+    this.clientId = null;
   }
 
   getId(): string | null {
@@ -103,5 +86,5 @@ export async function getAppCryptoClient(): Promise<CryptoClient> {
 }
 
 export function getCryptoVersion(): string {
-  return version();
+  return 'deprecated';
 }

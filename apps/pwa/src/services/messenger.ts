@@ -35,7 +35,6 @@ class MessengerService {
   private registerSuccessCallback: RegisterSuccessCallback | null = null;
   private loginSuccessCallback: LoginSuccessCallback | null = null;
   private serverErrorCallback: ServerErrorCallback | null = null;
-  private _messageCallback: MessageCallback | null = null;
   private connectionCheckInterval: number | null = null;
 
   async initialize(): Promise<void> {
@@ -196,9 +195,11 @@ class MessengerService {
 
   /**
    * Установить callback для входящих сообщений
+   * @deprecated Not implemented yet
    */
   onMessage(callback: MessageCallback): void {
-    this._messageCallback = callback;
+    // TODO: Implement message callback
+    console.warn('onMessage callback is not implemented yet');
   }
 
   /**
@@ -298,7 +299,6 @@ class MessengerService {
     this.registerSuccessCallback = null;
     this.loginSuccessCallback = null;
     this.serverErrorCallback = null;
-    this._messageCallback = null;
     
     console.log('Messenger destroyed.');
   }
