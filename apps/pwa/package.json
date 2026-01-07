@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run build:wasm --prefix ../..",
     "build": "tsc && vite build",
+    "build:wasm": "cd ../../packages/core && wasm-pack build --target web --release --out-dir ../../apps/pwa/src/wasm/pkg",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

@@ -1,0 +1,9 @@
+{
+  "buildCommand": "bash scripts/build-wasm.sh && turbo run build",
+  "installCommand": "npm install --prefix=../..",
+  "framework": null,
+  "outputDirectory": "apps/pwa/dist",
+  "devCommand": "turbo run dev",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ../.."
+}
+

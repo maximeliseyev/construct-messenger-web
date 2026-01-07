@@ -8,7 +8,7 @@ import init, {
   decrypt_message,
   destroy_client,
   version
-} from '../wasm/construct_core.js';
+} from '../wasm/pkg/construct_core.js';
 
 let wasmInitialized = false;
 

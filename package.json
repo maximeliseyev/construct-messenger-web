@@ -12,8 +12,8 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "build:wasm": "cd packages/core && wasm-pack build --target web --release --out-dir ../../dist-wasm",
-    "build:wasm:dev": "cd packages/core && wasm-pack build --target web --dev --out-dir ../../dist-wasm",
+    "build:wasm": "cd packages/core && wasm-pack build --target web --release --out-dir ../../apps/pwa/src/wasm/pkg",
+    "build:wasm:dev": "cd packages/core && wasm-pack build --target web --dev --out-dir ../../apps/pwa/src/wasm/pkg",
     "test": "turbo run test",
     "test:wasm": "cargo test --workspace",
     "test:integration": "cargo test --workspace --test '*'",

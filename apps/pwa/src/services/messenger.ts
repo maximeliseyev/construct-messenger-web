@@ -35,7 +35,7 @@ class MessengerService {
   private registerSuccessCallback: RegisterSuccessCallback | null = null;
   private loginSuccessCallback: LoginSuccessCallback | null = null;
   private serverErrorCallback: ServerErrorCallback | null = null;
-  private messageCallback: MessageCallback | null = null;
+  private _messageCallback: MessageCallback | null = null;
   private connectionCheckInterval: number | null = null;
 
   async initialize(): Promise<void> {
@@ -198,7 +198,7 @@ class MessengerService {
    * Установить callback для входящих сообщений
    */
   onMessage(callback: MessageCallback): void {
-    this.messageCallback = callback;
+    this._messageCallback = callback;
   }
 
   /**
@@ -298,7 +298,7 @@ class MessengerService {
     this.registerSuccessCallback = null;
     this.loginSuccessCallback = null;
     this.serverErrorCallback = null;
-    this.messageCallback = null;
+    this._messageCallback = null;
     
     console.log('Messenger destroyed.');
   }
