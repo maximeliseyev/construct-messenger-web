@@ -118,6 +118,14 @@ class MessengerService {
 
   async connect(serverUrl: string): Promise<void> {
     const stateId = this.getStateId();
+    
+    // Проверить, не подключены ли мы уже
+    const currentState = wasm.app_state_connection_state(stateId);
+    if (currentState === 'connected') {
+      console.log('⚠️ Already connected, skipping connect');
+      return;
+    }
+    
     await wasm.app_state_connect(stateId, serverUrl);
     
     // Начать проверку событий от сервера
@@ -135,7 +143,7 @@ class MessengerService {
   /**
    * Ожидание установки соединения
    */
-  async waitForConnection(timeout: number = 10000): Promise<void> {
+  async waitForConnection(timeout: number = 15000): Promise<void> {
     const stateId = this.getStateId();
     const startTime = Date.now();
     
@@ -143,14 +151,27 @@ class MessengerService {
       // Проверяем состояние соединения
       const state = wasm.app_state_connection_state(stateId);
       if (state === 'connected') {
-        // Дополнительная проверка - даем немного времени для полной инициализации
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return;
+        // Дополнительная проверка - даем больше времени для полной инициализации WebSocket
+        // Проверяем несколько раз, чтобы убедиться, что соединение стабильно
+        let stableCount = 0;
+        for (let i = 0; i < 3; i++) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const checkState = wasm.app_state_connection_state(stateId);
+          if (checkState === 'connected') {
+            stableCount++;
+          } else {
+            break;
+          }
+        }
+        if (stableCount === 3) {
+          console.log('✅ Connection is stable and ready');
+          return;
+        }
       }
       if (state === 'error') {
         throw new Error('Connection error');
       }
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
     
     throw new Error('Connection timeout');
@@ -161,7 +182,16 @@ class MessengerService {
    */
   registerOnServer(password: string): void {
     const stateId = this.getStateId();
+    
+    // Проверить состояние соединения перед отправкой
+    const state = wasm.app_state_connection_state(stateId);
+    if (state !== 'connected') {
+      throw new Error(`WebSocket is not connected. Current state: ${state}. Wait for connection to be established.`);
+    }
+    
+    console.log('📤 Sending Register message to server...');
     wasm.app_state_register_on_server(stateId, password);
+    console.log('✅ Register message sent');
   }
 
   /**
@@ -197,7 +227,7 @@ class MessengerService {
    * Установить callback для входящих сообщений
    * @deprecated Not implemented yet
    */
-  onMessage(callback: MessageCallback): void {
+  onMessage(_callback: MessageCallback): void {
     // TODO: Implement message callback
     console.warn('onMessage callback is not implemented yet');
   }
@@ -212,15 +242,68 @@ class MessengerService {
     }
 
     console.log('🔄 Starting event polling...');
+    let pollCount = 0;
     this.connectionCheckInterval = window.setInterval(() => {
-      // Проверить RegisterSuccess
-      const registerSuccess = (window as any).__construct_register_success;
+      pollCount++;
+      // Логируем каждые 50 итераций (5 секунд) для отладки
+      if (pollCount % 50 === 0) {
+        const win = window as any;
+        console.log('🔄 Event polling active, checking for events...', {
+          hasRegisterSuccess: !!win.__construct_register_success,
+          hasLoginSuccess: !!win.__construct_login_success,
+          hasServerError: !!win.__construct_server_error,
+          hasCallback: !!this.registerSuccessCallback,
+        });
+        
+        // Проверим все возможные варианты имени объекта
+        const allWindowKeys = Object.keys(win).filter(key => 
+          key.includes('register') || key.includes('Register') || key.includes('success') || key.includes('Success')
+        );
+        if (allWindowKeys.length > 0) {
+          console.log('🔍 Found potential RegisterSuccess keys in window:', allWindowKeys);
+          allWindowKeys.forEach(key => {
+            console.log(`  ${key}:`, win[key]);
+          });
+        }
+      }
+
+      // Проверить RegisterSuccess - проверяем все возможные варианты
+      const win = window as any;
+      let registerSuccess = win.__construct_register_success;
       
-      // Логируем каждую итерацию для отладки (можно убрать позже)
+      // Если не нашли в стандартном месте, проверим другие возможные варианты
+      if (!registerSuccess) {
+        // Проверим все ключи window, которые могут содержать RegisterSuccess
+        for (const key of Object.keys(win)) {
+          if (key.toLowerCase().includes('register') && key.toLowerCase().includes('success')) {
+            console.log(`🔍 Found alternative RegisterSuccess key: ${key}`);
+            registerSuccess = win[key];
+            break;
+          }
+        }
+      }
+      
+      // Детальное логирование для отладки при первом обнаружении
+      if (registerSuccess && !(win as any).__construct_register_success_logged) {
+        console.log('🔍 Full RegisterSuccess object dump:', JSON.stringify(registerSuccess, null, 2));
+        (win as any).__construct_register_success_logged = true;
+      }
+      
       if (registerSuccess) {
         console.log('🔔 Polling detected RegisterSuccess object:', registerSuccess);
         console.log('🔍 RegisterSuccess type:', typeof registerSuccess);
-        console.log('🔍 RegisterSuccess keys:', Object.keys(registerSuccess));
+        console.log('🔍 RegisterSuccess constructor:', registerSuccess.constructor?.name);
+        
+        // Попробуем получить все свойства объекта (включая не-enumerable)
+        const allProps: string[] = [];
+        let obj = registerSuccess;
+        while (obj && obj !== Object.prototype) {
+          allProps.push(...Object.getOwnPropertyNames(obj));
+          obj = Object.getPrototypeOf(obj);
+        }
+        console.log('🔍 All RegisterSuccess properties:', allProps);
+        
+        console.log('🔍 RegisterSuccess enumerable keys:', Object.keys(registerSuccess));
         console.log('🔍 RegisterSuccess values:', {
           userId: registerSuccess.userId,
           user_id: registerSuccess.user_id,
@@ -229,14 +312,63 @@ class MessengerService {
           username: registerSuccess.username,
         });
         
+        // Попробуем получить данные через JSON.stringify
+        try {
+          const jsonStr = JSON.stringify(registerSuccess);
+          console.log('🔍 RegisterSuccess as JSON:', jsonStr);
+        } catch (e) {
+          console.log('🔍 Cannot stringify RegisterSuccess:', e);
+        }
+        
+        // Попробуем разные варианты извлечения данных
+        let userId: string | undefined;
+        let sessionToken: string | undefined;
+        
+        // Вариант 1: camelCase (serde_wasm_bindgen default)
+        userId = registerSuccess.userId;
+        sessionToken = registerSuccess.sessionToken;
+        
+        // Вариант 2: snake_case
+        if (!userId) userId = registerSuccess.user_id;
+        if (!sessionToken) sessionToken = registerSuccess.session_token;
+        
+        // Вариант 3: прямой доступ к полям объекта
+        if (!userId && registerSuccess.data) {
+          userId = registerSuccess.data.userId || registerSuccess.data.user_id;
+          sessionToken = registerSuccess.data.sessionToken || registerSuccess.data.session_token;
+        }
+        
+        // Вариант 4: попробуем получить через методы объекта (если это класс)
+        if (!userId && typeof registerSuccess === 'object') {
+          // Попробуем вызвать методы, если они есть
+          if (typeof (registerSuccess as any).getUserId === 'function') {
+            userId = (registerSuccess as any).getUserId();
+          }
+          if (typeof (registerSuccess as any).getSessionToken === 'function') {
+            sessionToken = (registerSuccess as any).getSessionToken();
+          }
+          // Попробуем получить через индексацию
+          if (!userId) {
+            for (const prop of allProps) {
+              if (prop.toLowerCase().includes('user') && prop.toLowerCase().includes('id')) {
+                userId = (registerSuccess as any)[prop];
+                break;
+              }
+            }
+          }
+          if (!sessionToken) {
+            for (const prop of allProps) {
+              if (prop.toLowerCase().includes('session') && prop.toLowerCase().includes('token')) {
+                sessionToken = (registerSuccess as any)[prop];
+                break;
+              }
+            }
+          }
+        }
+        
+        console.log('🔍 Extracted after all attempts:', { userId, sessionToken, hasCallback: !!this.registerSuccessCallback });
+        
         if (this.registerSuccessCallback) {
-          const data = registerSuccess;
-          // serde_wasm_bindgen использует camelCase для полей (из-за rename_all = "camelCase")
-          const userId = data.userId || data.user_id;
-          const sessionToken = data.sessionToken || data.session_token;
-          
-          console.log('🔍 Extracted:', { userId, sessionToken, hasCallback: !!this.registerSuccessCallback });
-          
           if (userId && sessionToken) {
             console.log('✅ Calling registerSuccessCallback with:', { userId, sessionToken });
             try {
@@ -247,10 +379,11 @@ class MessengerService {
               console.error('❌ Error in registerSuccessCallback:', err);
             }
           } else {
-            console.error('❌ Invalid RegisterSuccess data structure:', data);
+            console.error('❌ Invalid RegisterSuccess data structure:', registerSuccess);
             console.error('❌ Missing fields:', { 
               hasUserId: !!userId, 
-              hasSessionToken: !!sessionToken 
+              hasSessionToken: !!sessionToken,
+              fullObject: registerSuccess
             });
           }
         } else {
@@ -268,10 +401,17 @@ class MessengerService {
 
       // Проверить ServerError
       const serverError = (window as any).__construct_server_error;
-      if (serverError && this.serverErrorCallback) {
-        const data = serverError;
-        this.serverErrorCallback(data.code, data.message);
-        delete (window as any).__construct_server_error;
+      if (serverError) {
+        console.log('🔔 Polling detected ServerError:', serverError);
+        if (this.serverErrorCallback) {
+          const data = serverError;
+          this.serverErrorCallback(data.code, data.message);
+          delete (window as any).__construct_server_error;
+        } else {
+          console.warn('⚠️ ServerError received but no callback set:', serverError);
+          // Очистить ошибку даже если нет callback
+          delete (window as any).__construct_server_error;
+        }
       }
     }, 100); // Проверять каждые 100ms
   }

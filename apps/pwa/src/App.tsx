@@ -33,6 +33,13 @@ const App: React.FC = () => {
     messenger.onRegisterSuccess(async (userId: string, sessionToken: string) => {
       console.log('✅ RegisterSuccess callback triggered:', userId, sessionToken);
 
+      // Очистить таймаут регистрации
+      const timeoutId = (window as any).__construct_registration_timeout;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        delete (window as any).__construct_registration_timeout;
+      }
+
       // Получить сохраненные данные
       const password = sessionStorage.getItem('pending_registration_password');
       const username = sessionStorage.getItem('pending_registration_username');
@@ -75,7 +82,19 @@ const App: React.FC = () => {
 
     // Установить callback для ошибок сервера
     messenger.onServerError((code: string, message: string) => {
-      console.error('Server error:', code, message);
+      console.error('❌ Server error:', code, message);
+      
+      // Очистить таймаут регистрации если он установлен
+      const timeoutId = (window as any).__construct_registration_timeout;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        delete (window as any).__construct_registration_timeout;
+      }
+      
+      // Очистить временные данные
+      sessionStorage.removeItem('pending_registration_password');
+      sessionStorage.removeItem('pending_registration_username');
+      
       setError(`Server error ${code}: ${message}`);
       setLoading(false);
     });
@@ -122,30 +141,40 @@ const App: React.FC = () => {
         await messenger.waitForConnection();
         console.log('✅ WebSocket connected to server');
 
-        // 4. Небольшая задержка для полной инициализации WebSocket
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // 4. Дополнительная задержка для полной инициализации WebSocket
+        await new Promise(resolve => setTimeout(resolve, 500));
 
         // 5. Отправить Register на сервер (после установки соединения)
         try {
           messenger.registerOnServer(password);
-          console.log('Register message sent to server');
+          console.log('✅ Register message sent to server');
         } catch (err) {
-          console.error('Failed to send Register:', err);
+          console.error('❌ Failed to send Register:', err);
           setError(err instanceof Error ? err.message : 'Failed to send registration');
           setLoading(false);
           return;
         }
 
-        // 4. Ждем RegisterSuccess от сервера (обрабатывается в callback)
-        // После получения RegisterSuccess вызовется messenger.finalizeRegistration
-        // и только тогда setAuthenticated(true)
-
         // Сохраняем данные временно для finalize (будет вызвано из обработчика RegisterSuccess)
         sessionStorage.setItem('pending_registration_password', password);
         sessionStorage.setItem('pending_registration_username', username);
 
-        // Не устанавливаем setAuthenticated(true) сразу - ждем RegisterSuccess!
-        // setLoading остается true до получения ответа от сервера
+        // 6. Установить таймаут для регистрации (30 секунд)
+        const registrationTimeout = setTimeout(() => {
+          console.error('❌ Registration timeout - no response from server');
+          setError('Registration timeout. Server did not respond. Please try again.');
+          setLoading(false);
+          // Очистить временные данные
+          sessionStorage.removeItem('pending_registration_password');
+          sessionStorage.removeItem('pending_registration_username');
+        }, 30000);
+
+        // Сохранить timeout ID для очистки при успехе
+        (window as any).__construct_registration_timeout = registrationTimeout;
+
+        // Ждем RegisterSuccess от сервера (обрабатывается в callback)
+        // После получения RegisterSuccess вызовется messenger.finalizeRegistration
+        // и только тогда setAuthenticated(true)
 
       } else {
         // ВХОД (LOGIN):

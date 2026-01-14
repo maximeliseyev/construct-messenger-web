@@ -1,12 +1,14 @@
 [workspace]
 members = [
-    "packages/core",
+    # "packages/core",  # Закомментировано - теперь используем construct-core как git dependency
     # "crates/*",  # Раскомментировать когда добавим вспомогательные крейты
 ]
 
 resolver = "2"
 
 [workspace.dependencies]
+# Construct Core как git dependency (для WASM нужен исходный код - используйте git submodule или клонируйте в ../construct-core)
+construct-core = { git = "https://github.com/maximeliseyev/construct-core", features = ["wasm"] }
 # Общие зависимости для всех крейтов
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"

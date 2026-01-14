@@ -45,23 +45,23 @@ export class CryptoClient {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
-  initSession(contactId: string, remoteBundleJSON: string): string {
+  initSession(_contactId: string, _remoteBundleJSON: string): string {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
-  initReceivingSession(contactId: string, remoteBundleJSON: string, firstMessageJSON: string): string {
+  initReceivingSession(_contactId: string, _remoteBundleJSON: string, _firstMessageJSON: string): string {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
-  encryptMessage(sessionId: string, plaintext: string): EncryptedMessage {
+  encryptMessage(_sessionId: string, _plaintext: string): EncryptedMessage {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
-  encryptMessageJSON(sessionId: string, plaintext: string): string {
+  encryptMessageJSON(_sessionId: string, _plaintext: string): string {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 
-  decryptMessage(sessionId: string, encryptedJSON: string): string {
+  decryptMessage(_sessionId: string, _encryptedJSON: string): string {
     throw new Error('CryptoClient is deprecated. Use AppState API instead.');
   }
 

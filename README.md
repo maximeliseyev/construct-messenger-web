@@ -72,27 +72,20 @@ Construct Messenger is a modern **end-to-end encrypted** messenger built on:
 - **Xcode** 15+ (for iOS)
 - **UniFFI** 0.28
 
-### Building the iOS App
+### Building the Web PWA
 
 ```bash
-# 1. Build the Rust library
-cd packages/core
-cargo build --release --target aarch64-apple-ios
+# 1. Install dependencies
+npm install
 
-# 2. Generate Swift bindings
-uniffi-bindgen generate \
-  --library ../../target/aarch64-apple-ios/release/libconstruct_core.a \
-  --language swift \
-  --out-dir bindings/swift
+# 2. Build WASM module (construct-core из GitHub)
+npm run build:wasm
 
-# 3. Copy to the Xcode project
-cp ../../target/aarch64-apple-ios/release/libconstruct_core.a ../../
-cp bindings/swift/construct_core.swift ../../ConstructMessenger/
-cp bindings/swift/construct_coreFFI.h ../../ConstructMessenger/
-
-# 4. Open Xcode and run
-open ../../ConstructMessenger.xcodeproj
+# 3. Build and run the app
+npm run dev
 ```
+
+**Примечание:** Rust core (`construct-core`) теперь находится в отдельном репозитории: https://github.com/maximeliseyev/construct-core. Скрипт сборки автоматически найдёт исходный код (git submodule, sibling directory, или клонирует временно).
 
 ### Running the Server
 
@@ -149,50 +142,28 @@ cargo run --release
 ## 🛠️ Project Structure
 
 ```
-construct-messenger/
+construct-messenger-web/
 │
-├── packages/
-│   ├── core/               # 🦀 Rust cryptographic core
-│   │   ├── src/
-│   │   │   ├── crypto/    # Cryptographic modules
-│   │   │   │   ├── classic_suite.rs
-│   │   │   │   ├── crypto_provider.rs
-│   │   │   │   ├── double_ratchet.rs
-│   │   │   │   └── x3dh.rs
-│   │   │   ├── uniffi_bindings.rs  # UniFFI wrapper
-│   │   │   └── construct_core.udl  # UniFFI interface
-│   │   ├── Cargo.toml
-│   │   └── build.rs
-│   │
-│   └── server/             # 🦀 Rust WebSocket server
+├── apps/
+│   └── pwa/                # 🌐 Web PWA application
 │       ├── src/
-│       │   ├── handlers/  # Message handlers
-│       │   ├── db.rs      # PostgreSQL
-│       │   └── message.rs # Protocol types
-│       └── Cargo.toml
+│       │   ├── components/ # React components
+│       │   ├── services/   # Messenger service
+│       │   ├── lib/        # Crypto utilities
+│       │   └── wasm/       # WASM bindings (generated)
+│       └── package.json
 │
-├── ConstructMessenger/     # 📱 iOS Swift application
-│   ├── ViewModels/        # MVVM view models
-│   │   ├── ChatViewModel.swift        # 🆕 Queued messages
-│   │   └── AuthViewModel.swift
-│   ├── Views/             # SwiftUI views
-│   │   ├── Chat/
-│   │   │   ├── ChatView.swift
-│   │   │   ├── MessageBubble.swift    # 🆕 Context menu
-│   │   │   └── MessageInfoSheet.swift # 🆕 Message details
-│   │   ├── Components/
-│   │   │   └── QRScannerView.swift    # 🆕 Camera QR scanner
-│   │   └── Settings/
-│   │       ├── SettingsView.swift     # 🆕 Quick share
-│   │       └── ContactQRCodeView.swift
-│   ├── Security/
-│   │   └── CryptoManager.swift  # Thin wrapper
-│   ├── Networking/
-│   │   └── WebSocketManager.swift  # 🆕 Connection checks
-│   └── Models/            # Core Data models
+├── packages/               # (может содержать другие пакеты)
 │
-├── libconstruct_core.a    # Compiled Rust library
+├── scripts/
+│   └── build-wasm.sh      # Скрипт сборки WASM из construct-core
+│
+├── Cargo.toml             # Rust workspace (использует construct-core как git dependency)
+├── package.json           # Node.js workspace
 └── README.md              # 📖 This file
+
+Примечание: Rust core (construct-core) находится в отдельном репозитории:
+https://github.com/maximeliseyev/construct-core
 ```
 
 ---
@@ -201,8 +172,12 @@ construct-messenger/
 
 ### Rust Core
 
+Rust core (`construct-core`) находится в отдельном репозитории: https://github.com/maximeliseyev/construct-core
+
 ```bash
-cd packages/core
+# Для тестирования core напрямую:
+git clone https://github.com/maximeliseyev/construct-core.git
+cd construct-core
 cargo test --all-features
 ```
 

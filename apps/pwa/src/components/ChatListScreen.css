@@ -2,21 +2,18 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: var(--bg-primary);
-  padding-bottom: 56px;
+  background: var(--bg);
 }
 
 .chat-list-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  background-color: var(--bg-secondary);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
 
 .chat-list-header h1 {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: normal;
-  letter-spacing: 1px;
-  color: var(--text-primary);
 }
 
 .chat-list {
@@ -25,47 +22,30 @@
 }
 
 .chat-list-item {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.chat-list-item:hover {
-  background-color: var(--bg-hover);
-}
-
-.chat-list-item:active {
-  background-color: var(--bg-active);
 }
 
 .chat-content {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .chat-header-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
 }
 
 .chat-name {
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .chat-timestamp {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  letter-spacing: 0.5px;
-}
-
-.chat-preview-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .last-message {
@@ -74,32 +54,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  font-family: var(--font-system);
-}
-
-.unread-badge {
-  background-color: var(--text-primary);
-  color: var(--bg-primary);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  margin-left: 8px;
-  min-width: 18px;
-  text-align: center;
 }
 
 .empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   text-align: center;
-}
-
-.empty-state p.mono {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  letter-spacing: 1px;
+  color: var(--text-secondary);
 }

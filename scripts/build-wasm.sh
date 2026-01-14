@@ -38,10 +38,39 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Find construct-core path
+# Try: 1) git submodule, 2) sibling directory, 3) local path (fallback)
+if [ -d "$PROJECT_ROOT/packages/core" ]; then
+    CORE_PATH="$PROJECT_ROOT/packages/core"
+    echo "📦 Using local construct-core at: $CORE_PATH"
+elif [ -d "$PROJECT_ROOT/../construct-core" ]; then
+    CORE_PATH="$PROJECT_ROOT/../construct-core"
+    echo "📦 Using sibling construct-core at: $CORE_PATH"
+else
+    echo "⚠️  construct-core not found locally. Cloning from git..."
+    CORE_PATH="$PROJECT_ROOT/.construct-core-temp"
+    if [ ! -d "$CORE_PATH" ]; then
+        git clone --depth 1 https://github.com/maximeliseyev/construct-core.git "$CORE_PATH" || {
+            echo "❌ Failed to clone construct-core. Please ensure you have access to the repository."
+            echo "Alternatively, you can:"
+            echo "  1. Clone construct-core manually to ../construct-core"
+            echo "  2. Or use git submodule: git submodule add https://github.com/maximeliseyev/construct-core.git packages/core"
+            exit 1
+        }
+    fi
+    echo "📦 Cloned construct-core to: $CORE_PATH"
+fi
+
 # Build WASM
 echo "🏗️ Building WASM module..."
-cd packages/core
-wasm-pack build --target web --release --out-dir ../../apps/pwa/src/wasm/pkg
+cd "$CORE_PATH"
+wasm-pack build --target web --release --out-dir "$PROJECT_ROOT/apps/pwa/src/wasm/pkg" --features wasm
+
+# Cleanup temporary directory if we cloned it
+if [ "$CORE_PATH" == "$PROJECT_ROOT/.construct-core-temp" ]; then
+    echo "🧹 Cleaning up temporary construct-core clone..."
+    rm -rf "$PROJECT_ROOT/.construct-core-temp"
+fi
 
 echo "✅ WASM build complete!"
 
