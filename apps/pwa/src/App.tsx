@@ -28,83 +28,15 @@ const App: React.FC = () => {
   // Инициализация WASM при монтировании
   useEffect(() => {
     initWasm();
-
-    // Установить callback для RegisterSuccess
-    messenger.onRegisterSuccess(async (userId: string, sessionToken: string) => {
-      console.log('✅ RegisterSuccess callback triggered:', userId, sessionToken);
-
-      // Очистить таймаут регистрации
-      const timeoutId = (window as any).__construct_registration_timeout;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        delete (window as any).__construct_registration_timeout;
-      }
-
-      // Получить сохраненные данные
-      const password = sessionStorage.getItem('pending_registration_password');
-      const username = sessionStorage.getItem('pending_registration_username');
-
-      console.log('📦 Retrieved from sessionStorage:', { username, hasPassword: !!password });
-
-      if (!password || !username) {
-        console.error('❌ Missing registration data');
-        setError('Registration failed: missing data');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        console.log('💾 Calling finalizeRegistration...');
-        // Завершить регистрацию - сохранить в IndexedDB с server UUID
-        await messenger.finalizeRegistration(userId, sessionToken, password);
-        console.log('✅ Registration finalized in IndexedDB');
-
-        // Сохранить маппинг username → userId
-        const userMap = JSON.parse(localStorage.getItem('construct_user_map') || '{}');
-        userMap[username.toLowerCase()] = userId;
-        localStorage.setItem('construct_user_map', JSON.stringify(userMap));
-        console.log('✅ User mapping saved');
-
-        // Очистить временные данные
-        sessionStorage.removeItem('pending_registration_password');
-        sessionStorage.removeItem('pending_registration_username');
-
-        // Успешная регистрация!
-        console.log('🎉 Setting authenticated=true and loading=false');
-        setAuthenticated(true);
-        setLoading(false);
-      } catch (err) {
-        console.error('❌ Failed to finalize registration:', err);
-        setError('Failed to complete registration: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        setLoading(false);
-      }
-    });
-
-    // Установить callback для ошибок сервера
-    messenger.onServerError((code: string, message: string) => {
-      console.error('❌ Server error:', code, message);
-      
-      // Очистить таймаут регистрации если он установлен
-      const timeoutId = (window as any).__construct_registration_timeout;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        delete (window as any).__construct_registration_timeout;
-      }
-      
-      // Очистить временные данные
-      sessionStorage.removeItem('pending_registration_password');
-      sessionStorage.removeItem('pending_registration_username');
-      
-      setError(`Server error ${code}: ${message}`);
-      setLoading(false);
-    });
   }, []);
 
   const initWasm = async () => {
     try {
       setLoading(true);
-      await messenger.initialize();
+      // Initialize with server URL (REST API endpoint)
+      await messenger.initialize(SERVER_URL);
       setInitialized(true);
+      console.log('✅ WASM initialized with server URL:', SERVER_URL);
     } catch (err) {
       console.error('Failed to initialize WASM:', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize');
@@ -127,82 +59,37 @@ const App: React.FC = () => {
           return;
         }
 
-        // ПРАВИЛЬНЫЙ ПОТОК РЕГИСТРАЦИИ:
-        // 1. Инициализировать пользователя (создать ключи в памяти, НЕ сохранять)
-        await messenger.registerUser(username, password);
-        console.log('User keys created locally');
+        // РЕГИСТРАЦИЯ через REST API:
+        // registerUser() теперь делает всё: создаёт ключи, регистрируется на сервере,
+        // сохраняет токены и запускает polling автоматически
+        console.log('📝 Starting registration via REST API...');
+        const userId = await messenger.registerUser(username, password);
+        console.log('✅ Registration successful, userId:', userId);
 
-        // 2. Подключиться к серверу
-        const serverUrl = localStorage.getItem('construct_server_url') || SERVER_URL;
-        await messenger.connect(serverUrl);
-        console.log('WebSocket connecting to:', serverUrl);
+        // Сохранить маппинг username → userId для будущих логинов
+        const userMap = JSON.parse(localStorage.getItem('construct_user_map') || '{}');
+        userMap[username.toLowerCase()] = userId;
+        localStorage.setItem('construct_user_map', JSON.stringify(userMap));
+        console.log('✅ User mapping saved');
 
-        // 3. Дождаться установки соединения
-        await messenger.waitForConnection();
-        console.log('✅ WebSocket connected to server');
+        // Start long polling for incoming messages (автоматически после регистрации)
+        await messenger.startPolling();
+        console.log('✅ Long polling started');
 
-        // 4. Дополнительная задержка для полной инициализации WebSocket
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // 5. Отправить Register на сервер (после установки соединения)
-        try {
-          messenger.registerOnServer(password);
-          console.log('✅ Register message sent to server');
-        } catch (err) {
-          console.error('❌ Failed to send Register:', err);
-          setError(err instanceof Error ? err.message : 'Failed to send registration');
-          setLoading(false);
-          return;
-        }
-
-        // Сохраняем данные временно для finalize (будет вызвано из обработчика RegisterSuccess)
-        sessionStorage.setItem('pending_registration_password', password);
-        sessionStorage.setItem('pending_registration_username', username);
-
-        // 6. Установить таймаут для регистрации (30 секунд)
-        const registrationTimeout = setTimeout(() => {
-          console.error('❌ Registration timeout - no response from server');
-          setError('Registration timeout. Server did not respond. Please try again.');
-          setLoading(false);
-          // Очистить временные данные
-          sessionStorage.removeItem('pending_registration_password');
-          sessionStorage.removeItem('pending_registration_username');
-        }, 30000);
-
-        // Сохранить timeout ID для очистки при успехе
-        (window as any).__construct_registration_timeout = registrationTimeout;
-
-        // Ждем RegisterSuccess от сервера (обрабатывается в callback)
-        // После получения RegisterSuccess вызовется messenger.finalizeRegistration
-        // и только тогда setAuthenticated(true)
+        setAuthenticated(true);
+        setLoading(false);
 
       } else {
-        // ВХОД (LOGIN):
-        // 1. Найти userId по username
-        const userMap = JSON.parse(localStorage.getItem('construct_user_map') || '{}');
-        const userId = userMap[username.toLowerCase()];
+        // ЛОГИН через REST API:
+        // loginUser() теперь принимает username (не userId!) и делает всё:
+        // загружает ключи, логинится на сервере, сохраняет токены
+        console.log('🔑 Starting login via REST API...');
+        await messenger.loginUser(username, password);
+        console.log('✅ Login successful');
 
-        if (!userId) {
-          setError('User not found. Please register first.');
-          setLoading(false);
-          return;
-        }
-
-        // 2. Загрузить пользователя из IndexedDB
-        await messenger.loginUser(userId, password);
-        console.log('User loaded from IndexedDB');
-
-        // 3. Подключиться к серверу
-        const serverUrl = localStorage.getItem('construct_server_url') || SERVER_URL;
-        await messenger.connect(serverUrl);
-        console.log('WebSocket connecting to:', serverUrl);
-
-        // 4. Дождаться установки соединения
-        await messenger.waitForConnection();
-        console.log('✅ WebSocket connected to server');
-
-        // 5. TODO: Отправить Login на сервер
-        // messenger.loginOnServer(password);
+        // Start long polling for incoming messages
+        await messenger.startPolling();
+        console.log('✅ Long polling started');
 
         setAuthenticated(true);
         setLoading(false);
@@ -214,13 +101,25 @@ const App: React.FC = () => {
     }
   };
 
-  const handleLogout = () => {
-    setAuthenticated(false);
-    setUsername('');
-    setPassword('');
-    setConfirmPassword('');
-    messenger.destroy();
-    initWasm();
+  const handleLogout = async () => {
+    try {
+      await messenger.logout();
+      setAuthenticated(false);
+      setUsername('');
+      setPassword('');
+      setConfirmPassword('');
+      // Re-initialize for next login
+      await initWasm();
+    } catch (err) {
+      console.error('Logout error:', err);
+      // Continue with logout even if there's an error
+      setAuthenticated(false);
+      setUsername('');
+      setPassword('');
+      setConfirmPassword('');
+      messenger.destroy();
+      initWasm();
+    }
   };
 
   const toggleAuthMode = () => {

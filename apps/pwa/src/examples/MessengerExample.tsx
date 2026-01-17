@@ -11,42 +11,30 @@ export function MessengerExample() {
     error,
     currentUser,
     contacts,
-    connectionState,
+    isPolling,
     register,
     login,
     addContact,
     sendMessage,
-    connect,
   } = useMessenger();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [userId, setUserId] = useState('');
   const [isRegistering, setIsRegistering] = useState(true);
-  const [serverUrl, setServerUrl] = useState('ws://localhost:8080');
 
   // Регистрация/Вход
+  // Note: connect() is now integrated into register/login via REST API
   const handleAuth = async () => {
     try {
       if (isRegistering) {
         const newUserId = await register(username, password);
         alert(`✅ Пользователь создан!\nID: ${newUserId}\n\nСохраните этот ID для входа!`);
       } else {
-        await login(userId, password);
+        await login(username, password);
         alert('✅ Вход выполнен!');
       }
     } catch (err) {
       console.error('Auth error:', err);
-    }
-  };
-
-  // Подключение к серверу
-  const handleConnect = async () => {
-    try {
-      await connect(serverUrl);
-      alert('✅ Подключено к серверу!');
-    } catch (err) {
-      console.error('Connection error:', err);
     }
   };
 
@@ -65,13 +53,12 @@ export function MessengerExample() {
   };
 
   // Отправить сообщение
+  // Note: session_id is now auto-managed by WASM core
   const handleSendMessage = async (contactId: string) => {
     const text = prompt('Введите сообщение:');
     if (text) {
       try {
-        // TODO: В реальном приложении нужно получить sessionId из сессии с контактом
-        const sessionId = contactId; // Упрощенно
-        await sendMessage(contactId, sessionId, text);
+        await sendMessage(contactId, text);
         alert('✅ Сообщение отправлено!');
       } catch (err) {
         console.error('Send message error:', err);
@@ -98,10 +85,8 @@ export function MessengerExample() {
         <div><strong>Пользователь:</strong> {currentUser.username || 'Не авторизован'}</div>
         <div><strong>User ID:</strong> {currentUser.userId || '—'}</div>
         <div>
-          <strong>Подключение:</strong>{' '}
-          {connectionState === 'connected' ? '✅ Подключено' :
-           connectionState === 'connecting' ? '⏳ Подключение...' :
-           '❌ Отключено'}
+          <strong>Long Polling:</strong>{' '}
+          {isPolling ? '✅ Активен' : '❌ Неактивен'}
         </div>
       </div>
 
@@ -115,16 +100,6 @@ export function MessengerExample() {
               {isRegistering ? 'Уже есть аккаунт? Войти' : 'Нет аккаунта? Зарегистрироваться'}
             </button>
           </div>
-
-          {!isRegistering && (
-            <input
-              type="text"
-              placeholder="User ID"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              style={{ display: 'block', width: '100%', marginBottom: '10px', padding: '8px' }}
-            />
-          )}
 
           <input
             type="text"
@@ -144,27 +119,10 @@ export function MessengerExample() {
 
           <button
             onClick={handleAuth}
-            disabled={loading || !username || !password || (!isRegistering && !userId)}
+            disabled={loading || !username || !password}
             style={{ padding: '10px 20px', fontSize: '16px' }}
           >
             {loading ? '⏳ Загрузка...' : isRegistering ? '📝 Зарегистрироваться' : '🔑 Войти'}
-          </button>
-        </div>
-      )}
-
-      {/* Подключение к серверу */}
-      {currentUser.userId && connectionState === 'disconnected' && (
-        <div style={{ marginBottom: '20px', padding: '20px', border: '1px solid #ccc' }}>
-          <h2>🌐 Подключение к серверу</h2>
-          <input
-            type="text"
-            placeholder="Server URL (ws://localhost:8080)"
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            style={{ display: 'block', width: '100%', marginBottom: '10px', padding: '8px' }}
-          />
-          <button onClick={handleConnect} style={{ padding: '10px 20px', fontSize: '16px' }}>
-            🔌 Подключиться
           </button>
         </div>
       )}
@@ -215,7 +173,7 @@ export function MessengerExample() {
           <li><strong>Шифрование</strong> - Приватные ключи шифруются мастер-паролем (PBKDF2 + AES-256-GCM)</li>
           <li><strong>IndexedDB</strong> - Хранилище в браузере для ключей, сессий, сообщений</li>
           <li><strong>Double Ratchet</strong> - Протокол E2EE для сообщений (как в Signal)</li>
-          <li><strong>WebSocket</strong> - Соединение с сервером для обмена сообщениями</li>
+          <li><strong>REST API + Long Polling</strong> - REST API для отправки, long polling для получения сообщений</li>
         </ol>
       </div>
     </div>

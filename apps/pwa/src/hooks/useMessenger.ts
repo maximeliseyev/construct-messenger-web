@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { messenger, Contact, Conversation } from '../services/messenger';
+import { SERVER_URL } from '../config/constants';
 
 /**
  * React Hook для работы с мессенджером
@@ -10,13 +11,14 @@ export function useMessenger() {
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<{ userId?: string; username?: string }>({});
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [isPolling, setIsPolling] = useState(false);
 
   // Инициализация при монтировании
   useEffect(() => {
     const init = async () => {
       try {
-        await messenger.initialize();
+        // Initialize with server URL (REST API endpoint)
+        await messenger.initialize(SERVER_URL);
         setInitialized(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to initialize messenger');
@@ -31,6 +33,7 @@ export function useMessenger() {
   }, []);
 
   // Регистрация нового пользователя
+  // Note: registerUser now combines old initialize + register steps via REST API
   const register = useCallback(async (username: string, password: string) => {
     setLoading(true);
     setError(null);
@@ -38,6 +41,15 @@ export function useMessenger() {
       const userId = await messenger.registerUser(username, password);
       const user = messenger.getCurrentUser();
       setCurrentUser(user);
+      
+      // Start polling after registration
+      await messenger.startPolling();
+      setIsPolling(true);
+      
+      // Загрузить контакты
+      const contactsList = messenger.getContacts();
+      setContacts(contactsList);
+      
       return userId;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Registration failed';
@@ -49,13 +61,18 @@ export function useMessenger() {
   }, []);
 
   // Вход существующего пользователя
-  const login = useCallback(async (userId: string, password: string) => {
+  // Note: loginUser now combines old load + connect steps via REST API
+  const login = useCallback(async (username: string, password: string) => {
     setLoading(true);
     setError(null);
     try {
-      await messenger.loginUser(userId, password);
+      await messenger.loginUser(username, password);
       const user = messenger.getCurrentUser();
       setCurrentUser(user);
+
+      // Start polling after login
+      await messenger.startPolling();
+      setIsPolling(true);
 
       // Загрузить контакты
       const contactsList = messenger.getContacts();
@@ -87,11 +104,12 @@ export function useMessenger() {
   }, []);
 
   // Отправить сообщение
-  const sendMessage = useCallback(async (toContactId: string, sessionId: string, text: string) => {
+  // Note: session_id is now auto-managed by WASM core
+  const sendMessage = useCallback(async (toContactId: string, text: string) => {
     setLoading(true);
     setError(null);
     try {
-      const messageId = await messenger.sendMessage(toContactId, sessionId, text);
+      const messageId = await messenger.sendMessage(toContactId, text);
       return messageId;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to send message';
@@ -118,29 +136,44 @@ export function useMessenger() {
     }
   }, []);
 
-  // Подключиться к серверу
-  const connect = useCallback(async (serverUrl: string) => {
-    setConnectionState('connecting');
+  // Start polling for incoming messages
+  const startPolling = useCallback(async () => {
     setError(null);
     try {
-      await messenger.connect(serverUrl);
-      setConnectionState('connected');
+      await messenger.startPolling();
+      setIsPolling(true);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Connection failed';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to start polling';
       setError(errorMsg);
-      setConnectionState('disconnected');
       throw new Error(errorMsg);
     }
   }, []);
 
-  // Отключиться от сервера
-  const disconnect = useCallback(async () => {
+  // Stop polling for incoming messages
+  const stopPolling = useCallback(() => {
     try {
-      await messenger.disconnect();
-      setConnectionState('disconnected');
+      messenger.stopPolling();
+      setIsPolling(false);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Disconnect failed';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to stop polling';
       setError(errorMsg);
+    }
+  }, []);
+
+  // Logout
+  const logout = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await messenger.logout();
+      setCurrentUser({});
+      setContacts([]);
+      setIsPolling(false);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Logout failed';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -150,13 +183,14 @@ export function useMessenger() {
     error,
     currentUser,
     contacts,
-    connectionState,
+    isPolling,
     register,
     login,
     addContact,
     sendMessage,
     loadConversation,
-    connect,
-    disconnect,
+    startPolling,
+    stopPolling,
+    logout,
   };
 }

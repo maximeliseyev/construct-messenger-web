@@ -45,6 +45,25 @@ export default defineConfig({
     fs: {
       // Allow serving WASM files
       allow: ['..']
+    },
+    // Proxy для обхода CORS при разработке
+    proxy: {
+      '/api': {
+        target: 'https://ams.konstruct.cc',
+        changeOrigin: true,
+        secure: false, // Если сервер использует самоподписанный сертификат
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to the Target:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+          });
+        },
+      }
     }
   },
   optimizeDeps: {

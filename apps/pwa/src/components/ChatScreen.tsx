@@ -74,11 +74,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     setError(null);
 
     try {
-      // ✅ РЕАЛЬНАЯ ОТПРАВКА через WASM!
-      // TODO: Получить session_id из сессии с контактом
-      const sessionId = chatId; // Упрощенно используем chatId как session_id
-
-      const messageId = await messenger.sendMessage(chatId, sessionId, inputValue);
+      // ✅ РЕАЛЬНАЯ ОТПРАВКА через WASM REST API!
+      // Note: session_id is now auto-managed by WASM core
+      const messageId = await messenger.sendMessage(chatId, inputValue);
 
       console.log('✅ Message sent:', messageId);
 
