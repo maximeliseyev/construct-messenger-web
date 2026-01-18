@@ -28,23 +28,53 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const screenClassName = `chat-screen ${layoutMode === 'desktop' ? 'chat-screen-desktop' : ''}`;
 
+  // Загрузка текущего пользователя при монтировании
+  useEffect(() => {
+    try {
+      if (messenger.checkInitialized()) {
+        const user = messenger.getCurrentUser();
+        setCurrentUserId(user.userId);
+      }
+    } catch (err) {
+      console.error('Failed to get current user:', err);
+    }
+  }, []);
+
   // Загрузка сообщений при монтировании
   useEffect(() => {
+    if (!messenger.checkInitialized()) {
+      setError('Messenger is not initialized');
+      return;
+    }
+
     loadMessages();
 
     // Polling для обновления сообщений (пока нет WebSocket callbacks)
-    const interval = setInterval(loadMessages, 2000);
+    const interval = setInterval(() => {
+      if (messenger.checkInitialized()) {
+        loadMessages();
+      }
+    }, 2000);
     return () => clearInterval(interval);
   }, [chatId]);
 
   const loadMessages = async () => {
+    if (!messenger.checkInitialized()) {
+      setError('Messenger is not initialized');
+      return;
+    }
+
     try {
-      const conversation = await messenger.loadConversation(chatId);
+      // Получаем сообщения из локального хранилища (IndexedDB)
+      // Сообщения сохраняются автоматически через polling
+      const storedMessages = await messenger.getMessages(chatId);
+      
       // Конвертировать StoredMessage в Message формат для UI
-      const uiMessages: Message[] = conversation.messages.map(msg => ({
+      const uiMessages: Message[] = storedMessages.map(msg => ({
         id: msg.id,
         from: msg.from,
         to: msg.to,
@@ -53,6 +83,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
         status: msg.status,
       }));
       setMessages(uiMessages);
+      setError(null);
     } catch (err) {
       console.error('Failed to load messages:', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');
@@ -69,6 +100,11 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const handleSendMessage = async () => {
     if (inputValue.trim() === '') return;
+
+    if (!messenger.checkInitialized()) {
+      setError('Messenger is not initialized');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -87,7 +123,12 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       await loadMessages();
     } catch (err) {
       console.error('❌ Failed to send message:', err);
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to send message';
+      setError(errorMsg);
+      // Показываем более подробную информацию об ошибке
+      if (err instanceof Error && err.message.includes('unreachable')) {
+        console.error('WASM unreachable error - messenger may need to be reinitialized');
+      }
     } finally {
       setLoading(false);
     }
@@ -111,7 +152,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const currentUserId = messenger.getCurrentUser().userId;
 
   return (
     <div className={screenClassName}>
@@ -140,7 +180,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
           </div>
         ) : (
           messages.map((msg, index) => {
-            const isMe = msg.from === currentUserId;
+            const isMe = currentUserId ? msg.from === currentUserId : false;
             const nextMsg = messages[index + 1];
             const showTimestamp = !nextMsg || nextMsg.from !== msg.from;
 

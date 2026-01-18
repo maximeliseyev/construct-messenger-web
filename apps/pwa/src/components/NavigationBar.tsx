@@ -1,7 +1,7 @@
 import React from 'react';
 import './NavigationBar.css';
 
-type Screen = 'contacts' | 'chats' | 'settings';
+type Screen = 'chats' | 'settings';
 
 type NavigationBarProps = {
   currentScreen: Screen;
@@ -10,27 +10,31 @@ type NavigationBarProps = {
 };
 
 const NavigationBar: React.FC<NavigationBarProps> = ({ currentScreen, onNavigate, layoutMode = 'mobile' }) => {
-  const navClassName = `navigation-bar ${layoutMode === 'desktop' ? 'navigation-bar-desktop' : ''}`;
+  const baseClasses = layoutMode === 'desktop' 
+    ? 'flex flex-row items-center justify-around border-t border-gray-800 bg-black'
+    : 'flex flex-row items-center justify-around border-t border-gray-800 bg-black';
   
   return (
-    <nav className={navClassName}>
+    <nav className={baseClasses}>
       <button
-        className={`nav-item ${currentScreen === 'contacts' ? 'active' : ''}`}
-        onClick={() => onNavigate('contacts')}
-      >
-        <span className="nav-label mono">CONTACTS</span>
-      </button>
-      <button
-        className={`nav-item ${currentScreen === 'chats' ? 'active' : ''}`}
+        className={`flex-1 py-3 px-4 cursor-pointer transition-colors mono text-xs uppercase ${
+          currentScreen === 'chats' 
+            ? 'text-white border-b-2 border-blue-600 bg-gray-900' 
+            : 'text-gray-400 hover:text-white hover:bg-gray-900'
+        }`}
         onClick={() => onNavigate('chats')}
       >
-        <span className="nav-label mono">CHATS</span>
+        CHATS
       </button>
       <button
-        className={`nav-item ${currentScreen === 'settings' ? 'active' : ''}`}
+        className={`flex-1 py-3 px-4 cursor-pointer transition-colors mono text-xs uppercase ${
+          currentScreen === 'settings' 
+            ? 'text-white border-b-2 border-blue-600 bg-gray-900' 
+            : 'text-gray-400 hover:text-white hover:bg-gray-900'
+        }`}
         onClick={() => onNavigate('settings')}
       >
-        <span className="nav-label mono">SETTINGS</span>
+        SETTINGS
       </button>
     </nav>
   );

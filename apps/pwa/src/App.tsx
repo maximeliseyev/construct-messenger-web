@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useDeviceType } from './hooks/useDeviceType';
 import { messenger } from './services/messenger';
 import MobileApp from './MobileApp';
@@ -18,6 +19,12 @@ const App: React.FC = () => {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const initRef = useRef(false); // Защита от двойной инициализации в StrictMode
+
+  // Логирование изменений состояния для отладки
+  useEffect(() => {
+    console.log('📊 App state changed:', { initialized, loading, authenticated, error: error?.substring(0, 50) });
+  }, [initialized, loading, authenticated, error]);
 
   // Auth форма
   const [isRegistering, setIsRegistering] = useState(false);
@@ -27,23 +34,73 @@ const App: React.FC = () => {
 
   // Инициализация WASM при монтировании
   useEffect(() => {
-    initWasm();
-  }, []);
+    let isActive = true;
 
-  const initWasm = async () => {
-    try {
-      setLoading(true);
-      // Initialize with server URL (REST API endpoint)
-      await messenger.initialize(SERVER_URL);
-      setInitialized(true);
-      console.log('✅ WASM initialized with server URL:', SERVER_URL);
-    } catch (err) {
-      console.error('Failed to initialize WASM:', err);
-      setError(err instanceof Error ? err.message : 'Failed to initialize');
-    } finally {
-      setLoading(false);
-    }
-  };
+    const initWasm = async () => {
+      try {
+        // Проверяем, не инициализирован ли уже messenger
+        // (может быть инициализирован в предыдущем монтировании из-за StrictMode)
+        const wasAlreadyInitialized = initRef.current;
+        
+        // Проверяем, действительно ли messenger инициализирован
+        if (wasAlreadyInitialized && messenger.checkInitialized()) {
+          console.log('ℹ️ Messenger already initialized, just updating UI state');
+          // Messenger действительно инициализирован, обновляем только UI
+          if (isActive) {
+            flushSync(() => {
+              setLoading(false);
+              setInitialized(true);
+            });
+          }
+          return;
+        }
+        
+        // Если был попытка инициализации, но messenger не инициализирован - сбрасываем флаг
+        if (wasAlreadyInitialized && !messenger.checkInitialized()) {
+          console.warn('⚠️ Previous initialization failed, retrying...');
+          initRef.current = false;
+        }
+        
+        setLoading(true);
+        setError(null);
+        console.log('🔄 Starting WASM initialization...');
+        initRef.current = true;
+        
+        // Initialize with server URL (REST API endpoint)
+        await messenger.initialize(SERVER_URL);
+        console.log('✅ WASM initialized with server URL:', SERVER_URL);
+        
+        // Обновляем состояние UI только после успешной инициализации
+        if (isActive) {
+          console.log('🔄 Updating React state: initialized=true, loading=false');
+          flushSync(() => {
+            setLoading(false);
+            setInitialized(true);
+          });
+          console.log('✅ React state updated with flushSync');
+        }
+      } catch (err) {
+        if (isActive) {
+          console.error('❌ Failed to initialize WASM:', err);
+          setError(err instanceof Error ? err.message : 'Failed to initialize');
+          setLoading(false);
+          setInitialized(false);
+          // Сбрасываем флаг, чтобы можно было повторить попытку
+          initRef.current = false;
+        }
+      }
+    };
+
+    initWasm();
+
+    // Cleanup функция
+    return () => {
+      isActive = false;
+      console.log('🧹 Component cleanup (React StrictMode)');
+      // НЕ сбрасываем initRef.current здесь, так как messenger должен остаться инициализированным
+      // Не уничтожаем messenger здесь, так как он singleton
+    };
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,20 +186,14 @@ const App: React.FC = () => {
     setConfirmPassword('');
   };
 
-  // Экран загрузки
-  if (loading && !initialized) {
+  // Экран загрузки (показываем только если действительно загружается и не инициализирован)
+  // Также показываем, если initialized=false независимо от loading (на случай, если loading не обновился)
+  if (!initialized) {
+    console.log('🔄 Rendering loading screen: loading=', loading, 'initialized=', initialized);
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: '#f5f5f5',
-        flexDirection: 'column',
-        gap: '20px',
-      }}>
-        <h1 style={{ margin: 0, fontSize: '24px' }}>Construct Messenger</h1>
-        <div>⏳ Loading WASM module...</div>
+      <div className="flex items-center justify-center h-screen bg-black text-white flex-col gap-5">
+        <h1 className="m-0 text-2xl font-bold">Konstruct</h1>
+        <div className="text-gray-400">Loading WASM module...</div>
       </div>
     );
   }
@@ -150,25 +201,17 @@ const App: React.FC = () => {
   // Экран ошибки
   if (error && !initialized) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: '#f5f5f5',
-        flexDirection: 'column',
-        gap: '20px',
-      }}>
-        <h1 style={{ margin: 0, fontSize: '24px' }}>Construct Messenger</h1>
-        <div style={{
-          padding: '20px',
-          background: '#fee',
-          border: '1px solid #f00',
-          borderRadius: '8px',
-        }}>
+      <div className="flex items-center justify-center h-screen bg-black text-white flex-col gap-5">
+        <h1 className="m-0 text-2xl font-bold">Konstruct</h1>
+        <div className="p-5 bg-red-900/30 border border-red-600 rounded-lg max-w-md">
           {error}
         </div>
-        <button onClick={initWasm}>Retry</button>
+        <button 
+          onClick={initWasm}
+          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -176,56 +219,29 @@ const App: React.FC = () => {
   // Экран авторизации
   if (!authenticated) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: '#f5f5f5',
-        padding: '20px',
-      }}>
-        <div style={{
-          background: 'white',
-          padding: '40px',
-          borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-          maxWidth: '400px',
-          width: '100%',
-        }}>
-          <h1 style={{ margin: '0 0 10px 0', fontSize: '24px', textAlign: 'center' }}>
-            Construct Messenger
+      <div className="flex items-center justify-center h-screen bg-black text-white p-5">
+        <div className="bg-gray-900 p-10 rounded-xl shadow-2xl max-w-md w-full border border-gray-800">
+          <h1 className="m-0 mb-2 text-2xl text-center font-bold">
+           Konstruct
           </h1>
           {error && (
-            <div style={{
-              padding: '10px',
-              background: '#fee',
-              border: '1px solid #f00',
-              borderRadius: '4px',
-              marginBottom: '20px',
-              fontSize: '14px',
-            }}>
+            <div className="p-3 bg-red-900/30 border border-red-600 rounded mb-5 text-sm">
               {error}
             </div>
           )}
 
           <form onSubmit={handleAuth}>
-            <div style={{ marginBottom: '10px', textAlign: 'center' }}>
+            <div className="mb-2 text-center">
               <button
                 type="button"
                 onClick={toggleAuthMode}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#007aff',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                }}
+                className="bg-transparent border-none text-blue-400 cursor-pointer text-sm hover:text-blue-300 transition-colors"
               >
                 {isRegistering ? 'Already have an account? Login' : 'No account? Register'}
               </button>
             </div>
 
-            <h2 style={{ fontSize: '18px', margin: '0 0 20px 0' }}>
+            <h2 className="text-lg mb-5 font-semibold">
               {isRegistering ? 'Register' : 'Login'}
             </h2>
 
@@ -234,15 +250,7 @@ const App: React.FC = () => {
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                marginBottom: '15px',
-                border: '1px solid #ddd',
-                borderRadius: '6px',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-              }}
+              className="w-full p-3 mb-4 border border-gray-700 bg-black text-white rounded text-sm box-border focus:outline focus:outline-1 focus:outline-white transition-colors"
               required
             />
 
@@ -251,15 +259,7 @@ const App: React.FC = () => {
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                marginBottom: isRegistering ? '15px' : '20px',
-                border: '1px solid #ddd',
-                borderRadius: '6px',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-              }}
+              className={`w-full p-3 ${isRegistering ? 'mb-4' : 'mb-5'} border border-gray-700 bg-black text-white rounded text-sm box-border focus:outline focus:outline-1 focus:outline-white transition-colors`}
               required
             />
 
@@ -269,15 +269,7 @@ const App: React.FC = () => {
                 placeholder="Confirm Password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  marginBottom: '20px',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
+                className="w-full p-3 mb-5 border border-gray-700 bg-black text-white rounded text-sm box-border focus:outline focus:outline-1 focus:outline-white transition-colors"
                 required
               />
             )}
@@ -285,23 +277,17 @@ const App: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              style={{
-                width: '100%',
-                padding: '14px',
-                background: loading ? '#ccc' : '#007aff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
+              className={`w-full p-3.5 text-white rounded text-base font-bold transition-colors ${
+                loading 
+                  ? 'bg-gray-600 cursor-not-allowed' 
+                  : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+              }`}
             >
               {loading ? 'Loading...' : isRegistering ? 'Register' : 'Login'}
             </button>
           </form>
 
-          <div style={{ marginTop: '20px', fontSize: '12px', color: '#999', textAlign: 'center' }}>
+          <div className="mt-5 text-xs text-gray-500 text-center">
           </div>
         </div>
       </div>

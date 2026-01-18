@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import ChatListScreen from './components/ChatListScreen';
-import ContactsScreen from './components/ContactsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import ChatScreen from './components/ChatScreen';
 import NavigationBar from './components/NavigationBar';
 import './MobileApp.css';
 import MobileLayout from './components/layouts/MobileLayout';
 
-type Screen = 'contacts' | 'chats' | 'settings' | 'chat';
+type Screen = 'chats' | 'settings' | 'chat';
 
 interface MobileAppProps {
   onLogout: () => void;
@@ -29,8 +28,6 @@ const MobileApp: React.FC<MobileAppProps> = ({ onLogout }) => {
 
   const renderScreen = () => {
     switch (currentScreen) {
-      case 'contacts':
-        return <ContactsScreen />;
       case 'chats':
         return <ChatListScreen onChatSelect={navigateToChat} />;
       case 'settings':

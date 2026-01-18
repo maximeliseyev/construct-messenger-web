@@ -67,16 +67,16 @@ export function MessengerExample() {
   };
 
   if (!initialized) {
-    return <div>⏳ Загрузка WASM модуля...</div>;
+    return <div>Loading WASM...</div>;
   }
 
   return (
     <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
-      <h1>🔐 Construct Messenger (Rust WASM)</h1>
+      <h1> Konstruct (Rust WASM)</h1>
 
       {error && (
         <div style={{ padding: '10px', background: '#fee', border: '1px solid #f00', marginBottom: '20px' }}>
-          ❌ Ошибка: {error}
+          Error: {error}
         </div>
       )}
 

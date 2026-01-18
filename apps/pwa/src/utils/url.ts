@@ -146,3 +146,43 @@ export function validateServerUrl(url: string): { valid: boolean; normalized?: s
     };
   }
 }
+
+/**
+ * Parses a contact URL in the format: https://konstruct.cc/c/{uuid}?username={username}
+ * 
+ * @param url - The contact URL to parse
+ * @returns Parsed contact data or null if URL is invalid
+ * 
+ * @example
+ * parseContactUrl('https://konstruct.cc/c/af70cf9a-b176-4df3-b6bf-00196a6f173e?username=max')
+ * -> { contactId: 'af70cf9a-b176-4df3-b6bf-00196a6f173e', username: 'max' }
+ */
+export function parseContactUrl(url: string): { contactId: string; username: string } | null {
+  try {
+    const urlObj = new URL(url);
+    
+    // Check if pathname matches /c/{uuid} pattern
+    const pathMatch = urlObj.pathname.match(/^\/c\/([a-f0-9-]{36})$/i);
+    if (!pathMatch) {
+      return null;
+    }
+    
+    const contactId = pathMatch[1];
+    const username = urlObj.searchParams.get('username');
+    
+    if (!username) {
+      return null;
+    }
+    
+    // Validate UUID format (basic check)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(contactId)) {
+      return null;
+    }
+    
+    return { contactId, username };
+  } catch (err) {
+    // Invalid URL format
+    return null;
+  }
+}

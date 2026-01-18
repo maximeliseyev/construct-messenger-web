@@ -10,7 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Construct Messenger',
+        name: 'Konstruct',
         short_name: 'Construct',
         description: 'Secure PWA Messenger',
         theme_color: '#ffffff',
@@ -28,13 +28,15 @@ export default defineConfig({
         ],
       },
     }),
-    // Middleware для правильной обработки WASM файлов
+    // Middleware для правильной обработки WASM и CSS файлов
     {
-      name: 'wasm-mime-type',
+      name: 'mime-type-fixes',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           if (req.url?.endsWith('.wasm')) {
             res.setHeader('Content-Type', 'application/wasm');
+          } else if (req.url?.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css');
           }
           next();
         });

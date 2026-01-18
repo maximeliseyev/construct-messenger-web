@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import DesktopLayout from './components/layouts/DesktopLayout';
 import ChatListScreen from './components/ChatListScreen';
-import ContactsScreen from './components/ContactsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import ChatScreen from './components/ChatScreen';
 import NavigationBar from './components/NavigationBar';
 import './DesktopApp.css';
 
-type Screen = 'contacts' | 'chats' | 'settings';
+type Screen = 'chats' | 'settings';
 
 interface DesktopAppProps {
   onLogout: () => void;
@@ -24,9 +23,6 @@ const DesktopApp: React.FC<DesktopAppProps> = ({ onLogout }) => {
   const renderLeftPane = () => {
     let listComponent;
     switch (currentScreen) {
-      case 'contacts':
-        listComponent = <ContactsScreen />;
-        break;
       case 'settings':
         listComponent = <SettingsScreen onLogout={onLogout} />;
         break;
